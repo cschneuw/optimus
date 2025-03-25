@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# R Markdown
+*.html
+*.Rproject
+
+# Data
+*.csv
+*.pickle
+*.json
+*.txt
+
+# Saved Figures
+*.png
+*.jpg
+*.jpeg
+*.pdf

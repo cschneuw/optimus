@@ -1,0 +1,499 @@
+import os
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.base import BaseEstimator, TransformerMixin
+
+# ------------------------------ Load datasets ------------------------------ #
+    
+def load_cognition(verbose=0):
+    """Load data from cognition dataset and return the merged dataframe with the demographic data.
+
+    Parameters
+    ----------
+    verbose : int, optional
+        _description_, by default 0
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    
+    df_cog = pd.read_csv("../../../dataset/ADNI/neuropsychological/all_merged.csv", index_col=0).replace({"sc":"bl","Female":0, "Male":1})
+    df_adnimerge =  pd.read_csv("../../../dataset/ADNI/neuropsychological/all_adnimerged.csv", index_col=0)
+    df_inventory = pd.read_csv("../../../dataset/ADNI/neuropsychological/inventory.csv").replace({"sc":"bl","Female":0, "Male":1})
+    df_demog = pd.read_csv("../../../dataset/ADNI/adnimerge/ptdemog.csv").replace({"sc":"bl","Female":0, "Male":1})
+
+    df_cog.set_index(["RID", "VISCODE"], inplace=True)
+    df_adnimerge.set_index(["RID", "VISCODE"], inplace=True)
+    df_cog = df_cog.drop_duplicates()
+    df_adnimerge = df_adnimerge.bfill(limit=1).drop_duplicates()
+    df_adnimerge = df_adnimerge[~df_adnimerge.index.duplicated(keep="first")]
+    df_cog = df_cog[~df_cog.index.duplicated(keep="first")]
+    df_cog.update(df_adnimerge)
+    df_cog.reset_index(inplace=True)
+    df_cog_test = df_cog.drop(columns=["ADNI_EF"]).rename(columns={"ADNI_EF2" : "ADNI_EF"})
+    df_cognames = pd.DataFrame()
+
+    for file in os.listdir("../../../dataset/ADNI/neuropsychological/"):
+        if file.endswith(".csv"):
+            if file.startswith("adni_"):
+                df_temp = pd.read_csv("../../../dataset/ADNI/neuropsychological/"+file, header=1)
+                df_temp["Domain"] = file.replace("adni_", "").replace(".csv", "").upper()
+                df_temp["Variable"] = df_temp["Variable"].replace('\*','',regex=True).apply(str.upper)
+                df_cognames = pd.concat([df_cognames, df_temp], axis=0)
+
+    if verbose:
+        print(df_cognames.Description.tolist())
+
+    memory_features = df_cognames[df_cognames.Domain == "MEMORY"].Variable.tolist()
+    executive_features = df_cognames[df_cognames.Domain == "EXECUTIVE"].Variable.tolist()
+    language_features = df_cognames[df_cognames.Domain == "LANGUAGE"].Variable.tolist()
+    visual_features = df_cognames[df_cognames.Domain == "VISUOSPATIAL"].Variable.tolist()
+
+    if verbose : 
+        print(f"MEMORY - Total items : {len(memory_features)}, Selected items : {len(df_cog_test.columns.intersection(memory_features))}")
+        print(f"EXECUTIVE - Total items : {len(executive_features)}, Selected items : {len(df_cog_test.columns.intersection(executive_features))}")
+        print(f"LANGUAGE - Total items : {len(language_features)}, Selected items : {len(df_cog_test.columns.intersection(language_features))}")
+        print(f"VISUOSPATIAL - Total items : {len(visual_features)}, Selected items : {len(df_cog_test.columns.intersection(visual_features))}")
+
+    agg_targets = ['ADNI_MEM', 'ADNI_EF', 'ADNI_LAN', 'ADNI_VS']
+    sep_targets = ['MMDATE', 'MMYEAR', 'MMMONTH', 'MMDAY',
+        'MMSEASON', 'MMHOSPIT', 'MMFLOOR', 'MMCITY', 'MMAREA', 'MMSTATE',
+        'MMREPEAT', 'MMHAND', 'MMFOLD', 'MMONFLR', 'MMREAD', 'MMWRITE',
+        'MMDRAW', 'CLOCKCIRC', 'CLOCKSYM', 'CLOCKNUM', 'CLOCKHAND', 'CLOCKTIME',
+        'COPYCIRC', 'COPYSYM', 'COPYNUM', 'COPYTIME', 'AVTOT1', 'AVTOT2',
+        'AVTOT3', 'AVTOT4', 'AVTOT5', 'AVTOT6', 'AVTOTB', 'CATANIMSC',
+        'TRAASCOR', 'TRABSCOR', 'BNTTOTAL', 'AVDEL30MIN', 'AVDELTOT']
+
+    df_cog_test = df_cog_test.merge(df_inventory[["RID", "PTID"]], how="left").drop_duplicates()
+    for col in sep_targets:
+        df_cog_test[col] = pd.to_numeric(df_cog_test[col])
+
+    df_cog_merge = df_cog_test.merge(df_inventory[["RID", "PTID"]], how="left").rename(columns={"PTID":"SubjectID"})
+    df_cog_merge = df_cog_merge.drop_duplicates(subset=["RID", "VISCODE"])
+
+    return df_cog_merge, df_demog, agg_targets, sep_targets
+
+def load_brain_imaging():
+
+    df_all = pd.read_csv("../../../dataset/ADNI/ALL_3.csv").replace({"sc":"bl","Female":0, "Male":1})
+    df_PETMRI = pd.read_csv("../../../dataset/ADNI/MRI_PET_data.csv").replace({"sc":"bl","ADNI2 Baseline-New Pt":"bl","Female":0, "m00":"bl", "Male":1})
+    df_PET = df_PETMRI[['Visit', 'Scan Date', 'Image ID', 'SubjectID', 'ScanDate', 'ImageUID',
+            'VISCODE_PET', 'path_PET','Research Group_PET',  'PET_ID', 
+            'PET_Vol', 'status_encode']].rename(columns={"VISCODE_PET":"VISCODE"}).replace({"sc":"bl","Female":0, "Male":1})
+    df_MRI = df_PETMRI[['Visit', 'Scan Date', 'Image ID', 'SubjectID', 'ScanDate', 'ImageUID',
+        'VISCODE_MRI', 'path_MRI', 'Research Group_MRI', 'MRI_ID', 
+        'MRI_Vol', 'status_encode']].rename(columns={"VISCODE_MRI":"VISCODE"}).replace({"sc":"bl","Female":0, "Male":1})
+    
+    df_inventory = pd.read_csv("../../../dataset/ADNI/neuropsychological/inventory.csv").replace({"sc":"bl","Female":0, "Male":1})
+
+    df_PET.columns = df_PET.columns.str.replace("_PET", "") 
+    df_MRI.columns = df_MRI.columns.str.replace("_MRI", "") 
+
+    df_MRI = df_MRI.merge(df_inventory[["PTID", "RID"]].rename(columns={"PTID":"SubjectID"})).drop_duplicates()
+    df_PET = df_PET.merge(df_inventory[["PTID", "RID"]].rename(columns={"PTID":"SubjectID"})).drop_duplicates()
+
+    return df_all, df_MRI, df_PET
+
+def load_transcriptomics():
+    df_counts = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_counts.csv", index_col=0)
+    df_samples = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_samples.csv", index_col=0)
+    df_genes = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_genes.csv", index_col=0)
+    df_dge = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", index_col=0)
+
+    df_counts = df_counts.transpose()
+    df_counts = df_counts.loc[:, df_counts.columns.isin(df_dge.Symbol)]
+
+    df_counts = df_counts.merge(df_samples[["SubjectID", "Visit"]], left_index=True, right_index=True)
+    df_counts = df_counts.reset_index(drop=True).drop_duplicates()
+    df_counts = df_counts.rename(columns={"Visit":"VISCODE"})
+
+    return df_counts, df_dge
+
+def load_CSF():
+    df_CSF = pd.read_csv("../../../dataset/ADNI/adnimerge/csfbiomk.csv").replace({"sc":"bl","Female":0, "Male":1})
+    return df_CSF
+
+def load_apoe():
+    df_apoe2 =  pd.read_csv("../../../dataset/ADNI/adnimerge/apoego2.csv")
+    df_apoe3 = pd.read_csv("../../../dataset/ADNI/adnimerge/apoe3.csv")
+
+    df_apoe = pd.concat([df_apoe2, df_apoe3])
+    df_apoe = df_apoe[["ORIGPROT", "RID", "SITEID", "APGEN1", "APGEN2"]]
+
+    df_genotype = pd.concat([df_apoe, df_apoe[["APGEN1", "APGEN2"]].apply(lambda s: s.value_counts(), axis=1).fillna(0).add_prefix('APOE_epsilon')], axis=1).drop(columns=["SITEID", "APGEN1", "APGEN2"])
+
+    return df_genotype
+
+# ------------------------------ Modify dataset ------------------------------ #
+
+def csv_to_list(filename):
+    lst = pd.read_csv(filename, header=None)
+    return lst[0].values.tolist()
+
+
+def read_featurenames(remove_medial_wall=True):
+    r_featurename="../../../dataset/ADNI/rh_mapping_names.csv"
+    l_featurename="../../../dataset/ADNI/lh_mapping_names.csv"
+    
+    r_features = csv_to_list(r_featurename)
+    l_features = csv_to_list(l_featurename)
+
+    all_features = [None]*(len(l_features)+len(r_features))
+
+    if remove_medial_wall: 
+        all_features[::2] = l_features
+        all_features[1::2] = r_features
+        all_features = all_features[2:]
+
+    all_features = list(map(lambda s : s.replace("7Networks_", ""), all_features))
+
+    return all_features
+    
+
+def fill_age_gender(df, df_demog):
+
+    if df.AGE.isna().any() or df.PTGENDER.isna().any(): 
+        
+        # Note that df_demog must contain the following columns: RID, PTGENDER, PTDOB
+        df_demog["PTDOB"] = pd.to_datetime(df_demog["PTDOB"], format="%Y")
+        merged_df = df.merge(df_demog[["RID", "PTGENDER", "PTDOB"]], on='RID', how='left').drop_duplicates(subset=["SubjectID", "VISCODE"])
+
+        if df.AGE.isna().any(): 
+            
+            # Fill NaN values in 'AGE' with the difference between 'Scan date' and 'PTDOB' divided by one year
+            merged_df['AGE'].fillna(merged_df.fillna((pd.to_datetime(merged_df['Scan Date']) - merged_df['PTDOB']).dt.days // 365), inplace=True)
+
+        elif df.PTGENDER.isna().any(): 
+
+            # Fill NaN values in 'PTGENDER' with values from 'PTGENDER_y' (which is 'PTGENDER' from df_demog)
+            merged_df['PTGENDER_x'].fillna(merged_df['PTGENDER_y'], inplace=True)
+            
+            if (merged_df.PTGENDER_x == merged_df.PTGENDER_y).all():
+                merged_df = merged_df.drop(columns="PTGENDER_y").rename(columns={"PTGENDER_x": "PTGENDER"})
+
+        return merged_df
+        
+    else : 
+            return df
+
+def correct_age_viscode_increment(df): 
+
+    df_test = df.copy()
+    # Group the dataframe by RID
+    grouped = df_test.groupby('RID')
+
+    # Iterate over RID groups
+    for rid, group in grouped:
+        # Group the current RID group by AGE
+        age_groups = group.groupby('AGE')
+        
+        # Iterate over AGE groups
+        for age, age_group in age_groups:
+            # Check if there are multiple occurrences of the same age
+            if len(age_group) > 1:
+                # Iterate over rows in the AGE group
+                for index, row in age_group.iterrows():
+                    # Check if the current row is not the first row in the AGE group
+                    if index != age_group.index[0]:
+                        # Increment the age based on the Months column
+                        df_test.loc[index, 'AGE'] += row['Months'] / 12
+
+    return df_test
+
+def merge_inputs_to_targets(input_df_list=[], target_df=None, df_demog=None, targetnames=[], inputnames=[]):
+
+    output_list = []
+
+    for i, df_input in enumerate(input_df_list) : 
+
+        df_input_merged = df_input.merge(target_df, on=["RID", "VISCODE"], how="left", suffixes=('', '_drop'))
+        df_input_merged = df_input_merged.drop(df_input_merged.filter(regex='_drop$').columns, axis=1)
+
+        df_input_merged = fill_age_gender(df_input_merged, df_demog)
+        
+        if len(inputnames)==len(input_df_list):
+            df_input_merged = df_input_merged.dropna(subset=targetnames+inputnames+["AGE", "PTGENDER"]).drop_duplicates(subset=["SubjectID", "VISCODE"])
+
+        output_list.append(df_input_merged)
+
+    return  tuple(output_list)
+
+# ------------------------------ Preprocessing ------------------------------ #
+
+# Custom Transformer for Demographic Correction
+
+class DemographicAdjustmentTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self, categorical_columns=None):
+        """
+        Initialize the transformer with optional categorical column names.
+
+        Args:
+            categorical_columns (list, optional): List of categorical column names that should not be transformed.
+        """
+        self.model_ = None
+        self.coef_ = None
+        self.intercept_ = None
+        self.categorical_columns = categorical_columns  # Allow setting categorical columns during initialization
+        self.non_categorical_columns_ = None  # This will be set in fit if not already provided
+
+    def fit(self, X, demographic_data, categorical_columns=None):
+        """
+        Fit a linear regression model on demographic variables for each non-categorical feature in X.
+        
+        Args:
+            X (pd.DataFrame): DataFrame of features (including both categorical and continuous variables).
+            demographic_data (pd.DataFrame): DataFrame containing demographic variables to be regressed out.
+            categorical_columns (list, optional): List of categorical column names to exclude from transformation.
+        """
+        # Allow setting categorical columns at the time of fitting
+        if categorical_columns is not None:
+            if categorical_columns != self.categorical_columns : 
+                raise ValueError("Inconsistent categorical columns!")
+        
+        if self.categorical_columns is None:
+            # Automatically detect categorical columns if none are provided
+            self.categorical_columns = X.select_dtypes(include=['category', 'object']).columns.tolist()
+        
+        # Set non-categorical columns for regression
+        self.non_categorical_columns_ = X.columns.difference(self.categorical_columns)
+        
+        # Fit the model only on non-categorical columns
+        X_non_categorical = X[self.non_categorical_columns_]
+        self.model_ = LinearRegression()
+        self.model_.fit(demographic_data, X_non_categorical)
+
+        # Store coefficients and intercept for transformation
+        self.coef_ = self.model_.coef_
+        self.intercept_ = self.model_.intercept_
+
+        return self
+
+    def transform(self, X, demographic_data):
+        """
+        Remove effects of demographic variables from each non-categorical feature in X by using residuals.
+        
+        Args:
+            X (pd.DataFrame): DataFrame of features (including both categorical and continuous variables).
+            demographic_data (pd.DataFrame): DataFrame containing demographic variables to be regressed out.
+        
+        Returns:
+            pd.DataFrame: Transformed DataFrame with residuals for non-categorical columns and original values for categorical columns.
+        """
+        if self.model_ is None : 
+            raise ValueError("This CustomModel instance is not fitted yet. "
+                                      "Call 'fit' with appropriate arguments before using this method.")
+
+        # Predict demographic influence on non-categorical columns
+        X_non_categorical = X[self.non_categorical_columns_]
+        X_non_categorical = X_non_categorical.astype("float32")
+        preds = self.model_.predict(demographic_data)
+        
+        # Calculate residuals for non-categorical columns
+        residuals = X_non_categorical - preds
+
+        # Combine residuals with categorical columns and ensure original column order
+        X_transformed = X.copy()
+        X_transformed[self.non_categorical_columns_] = residuals
+
+        # Check that the categorical columns were not inadvertently altered
+        if X_transformed[self.non_categorical_columns_].compare(X[self.non_categorical_columns_]).empty:
+            raise ValueError("Ordinal values wrongly modified!")
+        
+        return X_transformed
+
+    def fit_transform(self, X, demographic_data, categorical_columns=None):
+        """Fit and transform in a single step for convenience."""
+        self.fit(X, demographic_data, categorical_columns)
+        return self.transform(X, demographic_data)
+    
+    def inverse_transform(self, residuals, demographic_data):
+        """
+        Apply the reverse transformation to add back the demographic effects to the non-categorical columns.
+        
+        Args:
+            residuals (pd.DataFrame): DataFrame with residuals for non-categorical columns.
+            demographic_data (pd.DataFrame): DataFrame containing demographic variables to re-apply the demographic influence.
+        
+        Returns:
+            pd.DataFrame: DataFrame with demographic effects added back to non-categorical columns and original values for categorical columns.
+        """
+        if self.model_ is None:
+            raise ValueError("The model has not been fitted yet. Please call `fit` before using `inverse_transform`.")
+        
+        # if not isinstance(residuals, pd.DataFrame):
+        #     residuals = pd.DataFrame(residuals, columns=self.non_categorical_columns_)
+        
+        X_original = residuals.copy()
+        
+        # Predict demographic effects for non-categorical columns
+        preds = self.model_.predict(demographic_data)
+
+        # Add the demographic effect back to the residuals for non-categorical columns
+        X_original[self.non_categorical_columns_] = residuals[self.non_categorical_columns_] + preds
+
+        if X_original[self.non_categorical_columns_].compare(residuals[self.non_categorical_columns_]).empty:
+            raise ValueError("Ordinal values wrongly modified!")
+    
+        return X_original
+
+
+class Preprocessing:
+    """Superclass with static methods to preprocess features derived from MRI data."""
+    def __init__(self, data = None):
+        if data is not None : 
+            self.standardize_mean = data.mean()
+            self.standardize_std = data.std()
+        else: 
+            self.standardize_mean = None
+            self.standardize_std = None
+
+        self.correct_coef_ = None
+        self.correct_intercept_ = None
+
+    def correct_demographics(self, data, c):
+        """Correct the MRI features for covariates by fitting a linear regression to the MRI data and keeping residuals.
+
+        Args:
+            data (numpy.array): MRi data to correct.
+            c (numpy.array): Covariates to correct for.
+            
+        Returns:
+            _type_: _description_
+        """
+        res = np.zeros_like(data)
+        pred = np.zeros_like(data)
+
+        if self.correct_coef_ is None or self.correct_intercept_ is None:
+
+            print("Correct demographics : fit linear regression parameters to input data.")
+
+            regr = LinearRegression()
+            regr.fit(c, data)
+
+            self.correct_coef_ = regr.coef_
+            self.correct_intercept_ = regr.intercept_
+        else : 
+            print("Correct demographics : linear regression already fitted, transform only.")
+
+        regr = LinearRegression(fit_intercept=True)
+        regr.coef_ = self.correct_coef_
+        regr.intercept_ = self.correct_intercept_
+
+        pred = regr.p
+    def standardize(self, data):
+        """Center and divide data by feature-wise standard deviation.
+
+        Args:
+            data (torch.tensor): Data to standardize.
+
+        Returns:
+            torch.tensor: Standardized data
+        """
+        # PyTorch implementation of standard scaler
+        if self.standardize_mean is None or self.standardize_std is None:
+
+            print("Standardizer not fitted yet : new fit to data. ") 
+
+            self.standardize_mean = data.mean(0)
+            self.standardize_std = data.std(0)
+
+        data -= self.standardize_mean
+        data /= self.standardize_std
+
+        return data
+
+    @staticmethod
+    def remove_outliers(X, y, X_threshold=None, y_threshold=None):
+        """Remove outliers from input and target data.
+
+        Args:
+            X (np.array): Input data.
+            y (np.array): Target data.
+            X_threshold (tuple, optional): Minimum and maximum threhold boundaries to apply to input data. Defaults to None.
+            y_threshold (tuple, optional): Minimum and maximum threhold boundaries to apply to target data. Defaults to None.
+
+        Returns:
+            np.array: Input and target wihtout the outliers and a boolean array of size of the original number of samples with samples that were flagged as outliers.
+        """
+        X_is_out = np.full((X.shape[0],), False)
+        y_is_out = np.full((y.shape[0],), False)
+
+        # thesholds = (min, max)
+        if X_threshold is not None:
+            X_is_out = np.logical_or(
+                (X < X_threshold[0]).any(axis=1), (X > X_threshold[1]).any(axis=1)
+            )
+
+        if y_threshold is not None:
+            y_is_out = np.logical_or(
+                (y < y_threshold[0]).any(axis=1), (y > y_threshold[1]).any(axis=1)
+            )
+
+        is_outlier = np.logical_or(X_is_out, y_is_out)
+
+        X = X[~is_outlier]
+        y = y[~is_outlier]
+
+        return X, y, is_outlier
+    
+
+
+    def standardize(self, data):
+        """Center and divide data by feature-wise standard deviation.
+
+        Args:
+            data (torch.tensor): Data to standardize.
+
+        Returns:
+            torch.tensor: Standardized data
+        """
+        # PyTorch implementation of standard scaler
+        if self.standardize_mean is None or self.standardize_std is None:
+
+            print("Standardizer not fitted yet : new fit to data. ") 
+
+            self.standardize_mean = data.mean(0)
+            self.standardize_std = data.std(0)
+
+        data -= self.standardize_mean
+        data /= self.standardize_std
+
+        return data
+
+    @staticmethod
+    def remove_outliers(X, y, X_threshold=None, y_threshold=None):
+        """Remove outliers from input and target data.
+
+        Args:
+            X (np.array): Input data.
+            y (np.array): Target data.
+            X_threshold (tuple, optional): Minimum and maximum threhold boundaries to apply to input data. Defaults to None.
+            y_threshold (tuple, optional): Minimum and maximum threhold boundaries to apply to target data. Defaults to None.
+
+        Returns:
+            np.array: Input and target wihtout the outliers and a boolean array of size of the original number of samples with samples that were flagged as outliers.
+        """
+        X_is_out = np.full((X.shape[0],), False)
+        y_is_out = np.full((y.shape[0],), False)
+
+        # thesholds = (min, max)
+        if X_threshold is not None:
+            X_is_out = np.logical_or(
+                (X < X_threshold[0]).any(axis=1), (X > X_threshold[1]).any(axis=1)
+            )
+
+        if y_threshold is not None:
+            y_is_out = np.logical_or(
+                (y < y_threshold[0]).any(axis=1), (y > y_threshold[1]).any(axis=1)
+            )
+
+        is_outlier = np.logical_or(X_is_out, y_is_out)
+
+        X = X[~is_outlier]
+        y = y[~is_outlier]
+
+        return X, y, is_outlier
+    
