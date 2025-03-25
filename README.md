@@ -34,8 +34,8 @@ OPTIMUS is applied to data from 1,205 individuals, covering:
 
 **Data modalities include:**
 - Neuroimaging (e.g., MRI-based features)
-- Genetic data (e.g., gene expression or SNPs)
-- Proteomic profiles
+- Genetic data (e.g., gene expression and APOE genotype)
+- Proteomic profiles (e.g., CSF biomarkers)
 
 ---
 
