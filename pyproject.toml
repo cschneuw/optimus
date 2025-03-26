@@ -22,6 +22,7 @@ matplotlib-venn = "^1.1.2"
 MissForest = "^4.2.3"
 numba = "^0.61.0"
 shap = "^0.47.1"
+tabpfn = "^2.0.8"
 
 
 [build-system]

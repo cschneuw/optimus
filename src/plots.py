@@ -5,6 +5,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
+from scipy.stats import pearsonr
+
+from nilearn.image import new_img_like
+from nilearn import plotting
+import nibabel as nib
+
+
 def annotate(data, **kws):
     r, p = np.corrcoef(data['y_test'], data['y_pred'])[0, 1], 0
     ax = plt.gca()
@@ -190,3 +197,99 @@ def plot_random_histplots(imputed_X_lst, imputed_name_lst, df_X0 = None, hue_col
 
     for ax, row in zip(axes[:,0], df_X0.columns.values):
         ax.set_ylabel(row, rotation=90, size='large')
+
+
+def plot_top_features(feature_importances_list, feature_names, top_n=20, hue=None, palette="viridis"):
+    for idx, importances in enumerate(feature_importances_list):
+        # Create a DataFrame to pair features with their importances
+        feature_df = pd.DataFrame({
+            "Feature": feature_names,
+            "Importance": importances
+        })
+
+        # Sort by importance and select top N features
+        top_features = feature_df.nlargest(top_n, "Importance")
+
+        # Plot
+        plt.figure(figsize=(10, 6))
+        sns.barplot(
+            data=top_features,
+            x="Importance",
+            y="Feature",
+            hue=hue,
+            palette=palette
+        )
+        plt.title(f"Top {top_n} Features for Array {idx + 1}")
+        plt.xlabel("Feature Importance")
+        plt.ylabel("Features")
+        plt.tight_layout()
+        plt.show()
+
+# Step 3: Plotting helper function
+def plot_importance(importances, title, top_n=20, hue=None, palette="viridis"):
+    """Plot feature importances."""
+    importances = importances.head(top_n)
+    plt.figure(figsize=(10, 8))
+    sns.barplot(
+        x="Importance", y="Feature", data=importances, hue=hue, palette=palette, orient="h"
+    )
+    plt.title(title, fontsize=14)
+    plt.xlabel("Mean Permutation Importance (Pearson Correlation)", fontsize=12)
+    plt.ylabel("Feature", fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+# Custom scoring function for Pearson correlation (handles multi-target)
+def pearson_scorer(estimator, X, y):
+    """Compute Pearson correlation for multi-target predictions."""
+    predictions = estimator.predict(X)
+    correlations = []
+    for i in range(y.shape[1]):  # Iterate over targets
+        correlations.append(pearsonr(predictions[:, i], y.iloc[:, i])[0])
+    return np.array(correlations)
+
+
+def plot_brain_feature_importances(label='MMSE', head=20, method=None, savefilename=None):
+    atlas_path = '../figures/Schaefer2018_200Parcels_7Networks_order_FSLMNI152_1mm.nii.gz'  # Path to the atlas
+    atlas_img = nib.load(atlas_path)
+    atlas_data = atlas_img.get_fdata()
+
+    # Load region label map from data/AD/Schaefer2018_200Parcels_7Networks_order_info.txt, each line is feature_name,region_label
+    region_label_map = pd.read_csv('../figures/Schaefer2018_200Parcels_7Networks_order_info.txt')
+    region_label_map = region_label_map.set_index('feature_name')['region_label']
+
+    # Load feature importance
+    df = pd.read_csv(f'../figures/processed/adni_feature_importances_{label}.csv')
+    df['abs_importance'] = df['importance'].abs()  # Use absolute importance for ranking
+    df_sorted = df.sort_values(by='abs_importance', ascending=False).head(head)
+
+    # Map feature importance to brain regions
+    # Assuming the atlas regions are labeled as integers (LH and RH have different IDs)
+    importance_map = np.zeros_like(atlas_data)
+
+    for _, row in df_sorted.iterrows():
+        feature_name = row['feature']
+        importance_value = row['importance']
+
+        # Extract the region index
+        region_label = region_label_map.get(feature_name, None)
+
+        # Map the importance value to the atlas region
+        importance_map[atlas_data == region_label] = importance_value
+
+    # Create a new NIfTI image with the importance map
+    importance_img = new_img_like(atlas_img, importance_map)
+
+    # Plot the brain map using nilearn's plotting function
+    plotting.plot_glass_brain(
+        importance_img,
+        colorbar=True,
+        cmap="vlag",
+        vmin=-6.5, vmax=6.5,
+        display_mode='lyrz',
+    )
+
+    if savefilename is not None:
+        plt.savefig(f'plots/adni_brain_fi_{label}.svg')
+    # Show the plot
+    plotting.show()
