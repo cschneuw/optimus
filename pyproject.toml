@@ -24,6 +24,7 @@ numba = "^0.61.0"
 shap = "^0.47.1"
 tabpfn = "^2.0.8"
 shapiq = "^1.2.3"
+hyperopt = "^0.2.7"
 
 
 [build-system]

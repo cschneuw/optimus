@@ -226,3 +226,22 @@ def rank_dataframe(df):
     ranks.columns = ['Rank_' + col for col in df.columns]
     
     return ranks
+
+
+def missing_results_dict_to_dataframe(dict_output, target_names=[]):
+
+    df_results = pd.json_normalize(dict_output)
+
+    for col in df_results.columns[df_results.columns.str.startswith("results")]:
+        # Create new columns for each subcategory
+        for i, subcategory in enumerate(target_names):
+            new_col_name = f"{col}.{subcategory}"
+            df_results[new_col_name] = df_results[col].apply(lambda x: x[i] if x is not None else None)
+
+            print(new_col_name)
+
+        # Optionally, drop the original list column
+        df_results.drop(columns=col, inplace=True)
+
+    # Show the expanded DataFrame
+    return df_results

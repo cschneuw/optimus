@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import re
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -126,6 +127,48 @@ def load_apoe():
     df_genotype = pd.concat([df_apoe, df_apoe[["APGEN1", "APGEN2"]].apply(lambda s: s.value_counts(), axis=1).fillna(0).add_prefix('APOE_epsilon')], axis=1).drop(columns=["SITEID", "APGEN1", "APGEN2"])
 
     return df_genotype
+
+
+def load_pickle_data_palettes(drop_pet=True):
+    # Define file paths
+    file_paths = {
+        "df_X": "df_X_original.pickle",
+        "df_y": "df_y_original.pickle",
+        "df_all": "df_all_original.pickle",
+        "df_FinalCombination": "df_all.pickle",
+        "dict_select": "select_features.pickle",
+        "miss_mask": "filter_miss_mask.pickle"
+    }
+
+    # Load all pickle files
+    data = {key: pd.read_pickle(f"../pickle/{path}") for key, path in file_paths.items()}
+    
+    # Convert miss_mask to list
+    data["miss_mask"] = data["miss_mask"].tolist()
+
+    # Extract selected features
+    feature_keys = ["RNA", "CSF", "DNA", "MRIth", "MRIvol", "PET"]
+    select_features = [data["dict_select"][key] for key in feature_keys]
+    select_features_df = pd.DataFrame(select_features).T
+    select_features_df.columns = feature_keys
+    data["df_select_features"] = select_features_df
+    
+    # Define colormaps
+    full_palette = {
+        "orange": "#ff4b41", "yellow": "#ffaa41", "blue": "#75d8ff", 
+        "cyan": "#d7d341", "purple": "#e59edd", "green": "#70d941"
+    }
+    
+    data["colormaps"] = {
+        "full_palette": full_palette,
+        "gender_palette": {"0": full_palette["green"], "1": full_palette["purple"]},
+        "dx_palette": {"CN": "#75d8ff", "MCI": "#ffcc92", "AD": "#ff4b41"}
+    }
+
+    if drop_pet: 
+        data["df_X"] = data["df_X"][[col for col in data["df_X"].columns if not re.search(r'PET$|GM', col)]]
+
+    return data
 
 # ------------------------------ Modify dataset ------------------------------ #
 
