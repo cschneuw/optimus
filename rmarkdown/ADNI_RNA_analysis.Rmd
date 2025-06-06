@@ -1,19 +1,19 @@
 ---
-title: "ADNI_RNA_analysis"
+title: "Differential Gene Expression Analysis - ADNI RNA"
 author: "Christelle Schneuwly Diaz"
 date: "2023"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-## Differential expression analysis 
+# Differential expression analysis 
 
-Here we will perform classical differential gene expression preprocessing and analysis. While the sequencing technique is not
+In this report, we perform classical differential gene expression analysis on ADNI microarray data. After preprocessing and filtering, we compare diagnostic groups (e.g., CN vs. AD, CN vs. MCI) using edgeR. Visualizations include volcano plots to highlight significantly deregulated genes.
 
-```{r Import packages}
+```{r Import packages and data}
 library(ADNIMERGE)
 
 library(MGMM)
@@ -38,658 +38,156 @@ library(reshape2)
 library(ggfortify)
 
 library(samr)
-```
 
-Gene expression data from ADNI, was preprocessed by the authors and normalized using RMA (Robust Multi-Array
-Average) normaliztation. 
-
- 
-```{r Import data}
-
-median_filtering <- TRUE
-
-data(adnimerge)
-
-# read in the file from url
-meta_data <- read.csv("./ADNI/gene_expression_microarray/ADNI_RNA_metadata.csv", header=TRUE, row.names=1, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE)
-rownames(meta_data) <- paste(meta_data$SubjectID, meta_data$Visit, sep = "_")
-gene_data <- read.csv("./ADNI/gene_expression_microarray/ADNI_RNA_seq.csv", header=TRUE, row.names=1, as.is = TRUE, check.names=FALSE, colClasses=c("character", "character", "character", "character"), stringsAsFactors = FALSE)
-gene_info <- gene_data[, c("ProbeSet", "LocusLink", "Symbol", "GeneInfo")]
-
-# Function to convert date-like strings to a desired format
-convert_date_format <- function(date_str) {
-  if (grepl("^\\d+-[A-Za-z]+", date_str)) {
-    # If the string starts with a number followed by a hyphen and letters
-    parts <- strsplit(date_str, "-")[[1]]
-    converted_str <- paste(toupper(substr(parts[2], 1, 3)), parts[1], sep = "")
-    return(converted_str)
-  } else {
-    # If the string does not match the expected date format, return as is
-    return(date_str)
-  }
-}
-
-gene_info$Symbol <- sapply(gene_info$Symbol, convert_date_format)
-
-gene_data <- gene_data[ , !(names(gene_data) %in% c("LocusLink", "Symbol", "GeneInfo"))]
-
-rownames(gene_data) <- gene_data$ProbeSet
-gene_data$ProbeSet <- NULL
-
-rownames(gene_info) <- gene_info$ProbeSet
-gene_info$ProbeSet <- NULL
-
-all(colnames(gene_data) %in% rownames(meta_data))
-all(colnames(gene_data) == rownames(meta_data))
-
-# Assuming gene_data is your data frame or matrix
-
-# Function to convert values to numeric, returning NA on error
-to_numeric <- function(x) {
-  as.numeric(x)
-}
-
-# Apply the function to each element in the matrix
-numeric_gene_data <- apply(gene_data, 2, function(col) suppressWarnings(to_numeric(col)))
-
-# Convert back to a data frame if necessary
-gene_data <- as.data.frame(numeric_gene_data)
-
-# Check the first few rows to ensure conversion
-head(gene_data)
-
-names(adnimerge)[names(adnimerge) == "VISCODE"] <- "Visit"
-```
-
-
-```{r Plot raw data}
-# Basic density
-# Assuming gene_data is a matrix with genes in rows and samples in columns
-rownames(gene_data) <- rownames(gene_info)
-
-# Define the number of samples you want to randomly select
-num_samples <- 30  # Adjust this number as needed
-
-# Randomly sample patients (columns) from gene_data
-set.seed(123)  # For reproducibility
-sampled_patients <- sample(colnames(gene_data), num_samples)
-
-# Subset the gene data to include only the sampled patients
-gene_data_sampled <- gene_data[, sampled_patients]
-
-# Transpose the subsetted data for plotting
-gene_data_sampled_transposed <- as.data.frame(t(gene_data_sampled))
-
-# Melt the transposed data frame for ggplot2
-gene_data_sampled_melted <- melt(gene_data_sampled_transposed, variable.name = "Gene", value.name = "Expression")
-gene_data_sampled_melted$Sample <- rownames(gene_data_sampled_transposed)
-
-# Create boxplot
-ggplot(gene_data_sampled_melted, aes(x = Sample, y = Expression)) +
-  geom_boxplot() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(title = "Boxplot of Gene Expression Values (Sampled Patients)", x = "Samples", y = "Expression")
-
-# Density plot for each sampled patient
-ggplot(gene_data_sampled_melted, aes(x = Expression, color = Sample)) +
-  geom_density() +
-  labs(title = "Density Plot of Gene Expression Values (Sampled Patients)", x = "Expression", y = "Density")
-```
-
-
-
-```{r Remove noise}
-median_filtering <- FALSE
-
-get_max_counts <- function(gene_data, gene_info) {
-  
-  gene_data <- as.data.frame(gene_data)
-  gene_info <- as.data.frame(gene_info)
-  
-  gene_data$ProbeSet <- rownames(gene_data)
-  gene_info$ProbeSet <- rownames(gene_info)
-  
-  # Combine gene data and gene info
-  combined_data <- gene_data %>% 
-    left_join(select(gene_info, c("ProbeSet", "Symbol")), by = "ProbeSet")
-  
-  if (is.null(combined_data)) {
-    stop("Left join failed. Check if ProbeSet exists in both data frames.")
-  }
-  
-  # Identify sample columns dynamically, excluding non-numeric columns
-  sample_cols <- combined_data %>% 
-    select(where(is.numeric)) %>% 
-    colnames()
-  
-  max_counts <- combined_data %>%
-    pivot_longer(cols = all_of(sample_cols), names_to = "Sample", values_to = "Count") %>%
-    group_by(Symbol, Sample) %>%
-    summarise(max_count = max(Count, na.rm = TRUE), .groups = 'drop') %>%
-    pivot_wider(names_from = "Sample", values_from = "max_count")
-
-  return(max_counts)
-}
-
-
-if (median_filtering){
-
-filter_data <- function(meta_data, gene_data, gene_info, rin_threshold = 6.9, sample_threshold = 100) {
-  # Ensure the RIN column is numeric and handle NAs
-  meta_data$RIN <- as.numeric(meta_data$RIN)
-  if (any(is.na(meta_data$RIN))) {
-    warning("NAs introduced by coercion in RIN column")
-  }
-  
-  # Filter out subjects with RIN < rin_threshold
-  valid_subjects <- which(meta_data$RIN >= rin_threshold)
-  if (length(valid_subjects) == 0) {
-    stop("No valid subjects found with RIN >= ", rin_threshold)
-  }
-  
-  # Ensure valid_subjects correspond to valid column names in gene_data
-  valid_subjects_ids <- rownames(meta_data)[valid_subjects]
-  valid_subject_columns <- colnames(gene_data) %in% valid_subjects_ids
-  
-  filtered_meta_data <- meta_data[valid_subjects, ]
-  filtered_gene_data <- gene_data[, valid_subject_columns, drop = FALSE]
-  
-  # Ensure gene_data is a numeric matrix
-  gene_data_numeric <- as.matrix(filtered_gene_data)
-  
-  # Calculate the median of all gene expression values in the dataset
-  overall_median <- median(as.numeric(gene_data_numeric), na.rm = TRUE)
-  
-  # Create a logical matrix indicating where values are less than or equal to the overall median
-  below_overall_median <- gene_data_numeric <= overall_median
-  
-  # Count the number of samples where the intensity is less than or equal to the overall median
-  num_below_overall_median <- rowSums(below_overall_median, na.rm = TRUE)
-  
-  # Filter out probes with 100 or more samples with intensity values ≤ the overall median
-  valid_probes <- num_below_overall_median < sample_threshold
-  filtered_gene_data_final <- gene_data_numeric[valid_probes, , drop = FALSE]
-  
-  rownames(filtered_gene_data_final) <- rownames(gene_info[valid_probes,])
-  
-  filtered_gene_info <- gene_info[valid_probes, , drop = FALSE]
-  
-  return(list(filtered_meta_data = filtered_meta_data, filtered_gene_data = filtered_gene_data_final, filtered_gene_info = filtered_gene_info))
-}
-
-# Example usage
-result <- filter_data(meta_data, gene_data, gene_info)
-filtered_meta_data <- result$filtered_meta_data
-filtered_gene_data <- result$filtered_gene_data
-filtered_gene_info <- result$filtered_gene_info
-
-# Assuming filtered_gene_data and filtered_gene_info are already defined
-gene_data_merged <- get_max_counts(filtered_gene_data, filtered_gene_info)
-
-filtered_gene_info <- filtered_gene_info %>%
-  group_by(Symbol) %>% 
-  summarise_all(~ifelse(all(duplicated(.)), first(.), list(.)))
-
-gene_data_merged <- as.data.frame(gene_data_merged)
-filtered_gene_info <- as.data.frame(filtered_gene_info)
-
-rownames(gene_data_merged) <- gene_data_merged$Symbol
-rownames(filtered_gene_info) <- filtered_gene_info$Symbol
-
-gene_data_merged <- gene_data_merged[, -1]
-gene_data_merged <- as.matrix(gene_data_merged)
-gene_data_merged <- gene_data_merged[,!names(df) %in% c("Symbol")]
-filtered_gene_data <- gene_data_merged
-}
-
-if (!median_filtering){
-  
-# Assuming filtered_gene_data and filtered_gene_info are already defined
-gene_data_merged <- get_max_counts(gene_data, gene_info)
-
-#gene_data_merged$Symbol <- gene_info$Symbol
-
-gene_info <- gene_info %>%
-  group_by(Symbol) %>% 
-  summarise_all(~ifelse(all(duplicated(.)), first(.), list(.)))
-
-gene_data_merged <- as.data.frame(gene_data_merged)
-gene_info <- as.data.frame(gene_info)
-
-rownames(gene_data_merged) <- gene_data_merged$Symbol
-rownames(gene_info) <- gene_info$Symbol
-
-gene_data_merged <- as.matrix(gene_data_merged)
-  
-dge <- DGEList(counts= as.numeric(gene_data_merged[, -1]) , samples=meta_data, genes=gene_info, group=factor(meta_data$DXAGG))
-design <- model.matrix(~ 0 + factor(meta_data$DXAGG))
-design <- design[, -1]
-
-median_counts <- apply(gene_data_merged, 1, median)
-EM_data<-normalmixEM(median_counts, k = 2, mu=c(2.4, 6.2), sigma = c(1.5,6), arbvar = FALSE, epsilon=1e-05)
-
-# Extract the parameters of the fitted distributions
-cat(summary(EM_data))
-
-# Identify the threshold as the intersection point of the two Gaussian components
-threshold <- (2.694569 + 6.781961) / 2
-
-intersect <- function(m1, sd1, m2, sd2, p1, p2){
-
-  B <- (m1/sd1^2 - m2/sd2^2)
-  A <- 0.5*(1/sd2^2 - 1/sd1^2)
-  C <- 0.5*(m2^2/sd2^2 - m1^2/sd1^2) - log((sd1/sd2)*(p2/p1))
-
-  if (A!=0){
-    (-B + c(1,-1)*sqrt(B^2 - 4*A*C))/(2*A)
-  } else {-C/B}
-} 
-
-m1=2.694569; sd1=0.475055; m2=6.781961; sd2=1.978887; p1=0.386347; p2=0.613653
-(is=intersect(m1,sd1,m2,sd2,p1,p2))
-threshold <- is[2]
-
-# Print the threshold value
-cat("Threshold:", threshold, "\n")
-
-hist(median_counts, prob = TRUE, main="Histogram of Median Gene Counts", xlab="Median Gene Counts")
-plot(EM_data, which=2)
-lines(density(median_counts), lty=2, lwd = 2, col="black")
-# Add a vertical line at the threshold
-abline(v = threshold, col = "blue", lwd = 2)
-
-# Filter out genes
-keep <- median_counts > threshold
-dge <- dge[keep, , keep.lib.sizes=FALSE]
-
-median_counts <- apply(dge$counts, 1, median)
-hist(median_counts, prob = TRUE, main="Histogram of Median Gene Counts", xlab="Median Gene Counts")
-lines(density(median_counts), lty=2, lwd = 2, col="black")
-
-filtered_gene_data <-as.data.frame(dge$counts)
-fitlered_gene_info <- as.data.frame(dge$genes)
-filtered_meta_data <- as.data.frame(dge$samples)
-}
-```
-
-
-```{r Distribution plots}
-gene_data_merged <- filtered_gene_data
-
-isCN <- filtered_meta_data$DXAGG == "CN" 
-isMCI <- filtered_meta_data$DXAGG == "MCI"
-isAD <- filtered_meta_data$DXAGG == "AD"
-to_plot <- c(rownames(filtered_meta_data)[isCN][1:3], rownames(filtered_meta_data)[isMCI][1:3], rownames(filtered_meta_data)[isAD][1:3])
-
-hist(as.numeric(gene_data_merged[, to_plot]))
-```
-
-```{r Mean variance plots}
-warnings()
-
-class(gene_data_merged) <- "numeric"
-
-mean_counts <- apply(gene_data_merged, 1, mean)
-variance_counts <- apply(gene_data_merged, 1, var)
-df <- data.frame(mean_counts, variance_counts)
-
-ggplot(df) +
-        geom_point(aes(x=mean_counts, y=variance_counts)) + 
-        geom_line(aes(x=mean_counts, y=mean_counts, color="red"))
-```
-
-```{r Save Filtered Genes}
-
-gene_data_merged <- filtered_gene_data
-
-if (median_filtering) {
-  write.csv(filtered_gene_data, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_counts_median.csv", row.names = TRUE)
-  fitlered_genes <- data.frame(lapply(filtered_gene_info, as.character), stringsAsFactors=FALSE)
-  write.csv(fitlered_genes, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_genes_median.csv", row.names = TRUE)
-  write.csv(filtered_meta_data, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_samples_median.csv", row.names = TRUE)
-}else{
-  write.csv(filtered_gene_data, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_counts.csv", row.names = TRUE)
-  fitlered_genes <- data.frame(lapply(filtered_gene_info, as.character), stringsAsFactors=FALSE)
-  write.csv(fitlered_genes, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_genes.csv", row.names = TRUE)
-  write.csv(filtered_samples, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_samples.csv", row.names = TRUE)
-}
-```
-
-
-```{r Load Filtered Genes}
-
-# Load the filtered gene data
-filtered_gene_data <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_counts.csv", 
+filtered_gene_data <- read.csv("../data/microarray/filtered_counts.csv", 
                                row.names = 1, 
+                               check.names = FALSE,
                                stringsAsFactors = FALSE)
-
-# Load the filtered gene information
-filtered_gene_info <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_genes.csv", 
+filtered_gene_info <- read.csv("../data/microarray/filtered_genes.csv", 
                                 row.names = 1, 
+                               check.names = FALSE,
                                 stringsAsFactors = FALSE)
-
-# Load the filtered samples
-filtered_samples <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/filtered_samples.csv", 
+filtered_samples <- read.csv("../data/microarray/filtered_samples.csv", 
                               row.names = 1, 
+                             check.names = FALSE,
                               stringsAsFactors = FALSE)
-
 df_dge_original <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", 
                                 row.names = 1, 
+                                check.names = FALSE,
                                 stringsAsFactors = FALSE)
+  
+# Remove problematic samples
+exclude_ids <- c("128_S_2002", "003_S_2374", "116_S_4167", "033_S_4176", 
+                 "033_S_4179", "098_S_4215", "941_S_4292", "073_S_4300", 
+                 "018_S_4349", "116_S_4453", "135_S_4489", "033_S_4505")
+
+gene_counts <- filtered_gene_data[, !colnames(filtered_gene_data) %in% exclude_ids]
+sample_meta <- filtered_samples[!filtered_samples$SubjectID %in% exclude_ids, ]
+gene_info <- filtered_gene_info
+rownames(gene_info) <- gene_info$Symbol
 ```
 
 ```{r FromEdgeR}
+dge <- DGEList(counts = gene_counts, samples = sample_meta, genes = gene_info, group = factor(sample_meta$DX))
+design <- model.matrix(~ 0 + factor(sample_meta$DX))
 
-dge_gene_data <- filtered_gene_data
-dge_gene_info <- filtered_gene_info
-dge_meta_data <- filtered_samples
-
-rownames(dge_gene_info) <- filtered_gene_info$Symbol
-
-dge <- DGEList(counts=dge_gene_data, samples=dge_meta_data, genes=dge_gene_info, group=factor(dge_meta_data$DXAGG))
-design <- model.matrix(~ 0 + factor(filtered_samples$DXAGG))
-#design <- design[, -1]
-
-dge_threshold <-  0.6
-
-# estimate Dispersion
-disp <- estimateDisp(dge, design)
-
-# Calculate DGE
-et <- exactTest(disp, pair=c("CN", "AD"))
-
-# FDR correction 
-top <- topTags(object = et, n = 'Inf', sort.by="none")
-
-cn_ad <- subset(top$table, -log10(top$table$PValue) > dge_threshold)
-
-# Select the test you want, for example "CN_AD"
-test_of_interest <- "CN_AD"
-
-# Filter the df_dge to get genes corresponding to the test of interest
-highlight_genes <- df_dge_original$Symbol[df_dge_original$Test == test_of_interest]
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Filter top$table to include only genes in highlight_genes
-  geom_text(data = top$table[rownames(top$table) %in% highlight_genes, ],
-            aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-            hjust = 0.5, vjust = -0.5, color = "black", size = 3)
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Use geom_text_repel to label the highlighted genes
-  geom_text_repel(
-    data = top$table[rownames(top$table) %in% highlight_genes, ],
-    aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-    size = 3,  # Adjust text size
-    box.padding = 0.35,  # Padding around text box
-    point.padding = 0.5,  # Padding between text and points
-    segment.color = 'grey50',  # Line color connecting text to points
-    max.overlaps = 10  # Limit the maximum number of overlaps
+plot_volcano <- function(dge_result, threshold = 0.6, title = "Volcano Plot", highlight_genes = NULL) {
+  dge_result$table$color_group <- ifelse(
+    -log10(dge_result$table$PValue) > threshold & dge_result$table$logFC > 0, "Upregulated",
+    ifelse(-log10(dge_result$table$PValue) > threshold & dge_result$table$logFC < 0, "Downregulated", "Not significant")
   )
-
-# Filter data to highlight only significant genes above the threshold
-highlight_data <- top$table[rownames(top$table) %in% highlight_genes & 
-                              -log10(top$table$PValue) > dge_threshold, ]
-
-# Add a color grouping column
-top$table$color_group <- ifelse(
-  -log10(top$table$PValue) > dge_threshold & top$table$logFC > 0, "Upregulated",
-  ifelse(-log10(top$table$PValue) > dge_threshold & top$table$logFC < 0, "Downregulated", "Not significant")
-)
-
-# Plot
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  # Scatter points with color differentiation
-  geom_point(aes(color = color_group), alpha = 0.8, size = 3) +
   
-  # Black threshold line
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "azure4", linewidth = 1.2) +
-  
-  # Customize colors
-  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
-  
-  # Remove title and legend
-  labs(x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none",
-    plot.title = element_blank(),
-    axis.text = element_text(size = 14),
-    axis.title = element_text(size = 16)
-  ) +
-  
-  # Label significant genes with geom_text_repel
-  geom_text_repel(
-    data = highlight_data,
-    aes(label = rownames(highlight_data)),
-    size = 4.5,
-    box.padding = 0.4,
-    point.padding = 0.3,
-    segment.color = 'grey50',
-    max.overlaps = 10
-  )
+  highlight_df <- dge_result$table[rownames(dge_result$table) %in% highlight_genes & -log10(dge_result$table$PValue) > threshold, ]
 
-```
-
-```{r FromEdgeR}
-# estimate Dispersion
-disp <- estimateDisp(dge, design)
-
-dge_threshold <-  0.6
-
-# Calculate DGE
-et <- exactTest(disp, pair=c("CN", "MCI"))
-
-# FDR correction 
-top <- topTags(object = et, n = 'Inf', sort.by="none")
-
-cn_mci <- subset(top$table, -log10(top$table$PValue) > dge_threshold)
-
-# Select the test you want, for example "CN_AD"
-test_of_interest <- "CN_MCI"
-
-# Filter the df_dge to get genes corresponding to the test of interest
-highlight_genes <- df_dge_original$Symbol[df_dge_original$Test == test_of_interest]
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Filter top$table to include only genes in highlight_genes
-  geom_text(data = top$table[rownames(top$table) %in% highlight_genes, ],
-            aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-            hjust = 0.5, vjust = -0.5, color = "black", size = 3)
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Use geom_text_repel to label the highlighted genes
-  geom_text_repel(
-    data = top$table[rownames(top$table) %in% highlight_genes, ],
-    aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-    size = 3,  # Adjust text size
-    box.padding = 0.35,  # Padding around text box
-    point.padding = 0.5,  # Padding between text and points
-    segment.color = 'grey50',  # Line color connecting text to points
-    max.overlaps = 10  # Limit the maximum number of overlaps
-  )
-
-# Filter data to highlight only significant genes above the threshold
-highlight_data <- top$table[rownames(top$table) %in% highlight_genes & 
-                              -log10(top$table$PValue) > dge_threshold, ]
-
-# Add a color grouping column
-top$table$color_group <- ifelse(
-  -log10(top$table$PValue) > dge_threshold & top$table$logFC > 0, "Upregulated",
-  ifelse(-log10(top$table$PValue) > dge_threshold & top$table$logFC < 0, "Downregulated", "Not significant")
-)
-
-# Plot
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  # Scatter points with color differentiation
-  geom_point(aes(color = color_group), alpha = 0.8, size = 3) +
-  
-  # Black threshold line
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "azure4", linewidth = 1.2) +
-  
-  # Customize colors
-  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
-  
-  # Remove title and legend
-  labs(x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none",
-    plot.title = element_blank(),
-    axis.text = element_text(size = 14),
-    axis.title = element_text(size = 16)
-  ) +
-  
-  # Label significant genes with geom_text_repel
-  geom_text_repel(
-    data = highlight_data,
-    aes(label = rownames(highlight_data)),
-    size = 4.5,
-    box.padding = 0.4,
-    point.padding = 0.3,
-    segment.color = 'grey50',
-    max.overlaps = 10
-  )
-
-```
-
-```{r FromEdgeR}
-
-dge_threshold <-  0.6
-
-# estimate Dispersion
-disp <- estimateDisp(dge, design)
-
-# Calculate DGE
-et <- exactTest(disp, pair=c("MCI", "AD"))
-
-# FDR correction 
-top <- topTags(object = et, n = 'Inf', sort.by="none")
-
-mci_ad <- subset(top$table, -log10(top$table$PValue) > dge_threshold)
-
-# Select the test you want, for example "CN_AD"
-test_of_interest <- "MCI_AD"
-
-# Filter the df_dge to get genes corresponding to the test of interest
-highlight_genes <- df_dge_original$Symbol[df_dge_original$Test == test_of_interest]
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Filter top$table to include only genes in highlight_genes
-  geom_text(data = top$table[rownames(top$table) %in% highlight_genes, ],
-            aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-            hjust = 0.5, vjust = -0.5, color = "black", size = 3)
-
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  geom_point(aes(color = -log10(PValue) > dge_threshold), alpha = 0.6) +
-  scale_color_manual(values = c("grey", "red"), labels = c("Not selected", "Selected")) +
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "blue") +
-  labs(title = "Volcano Plot", x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal() +
-  # Use geom_text_repel to label the highlighted genes
-  geom_text_repel(
-    data = top$table[rownames(top$table) %in% highlight_genes, ],
-    aes(label = rownames(top$table)[rownames(top$table) %in% highlight_genes]),
-    size = 3,  # Adjust text size
-    box.padding = 0.35,  # Padding around text box
-    point.padding = 0.5,  # Padding between text and points
-    segment.color = 'grey50',  # Line color connecting text to points
-    max.overlaps = 10  # Limit the maximum number of overlaps
-  )
-
-# Filter data to highlight only significant genes above the threshold
-highlight_data <- top$table[rownames(top$table) %in% highlight_genes & 
-                              -log10(top$table$PValue) > dge_threshold, ]
-
-# Add a color grouping column
-top$table$color_group <- ifelse(
-  -log10(top$table$PValue) > dge_threshold & top$table$logFC > 0, "Upregulated",
-  ifelse(-log10(top$table$PValue) > dge_threshold & top$table$logFC < 0, "Downregulated", "Not significant")
-)
-
-# Plot
-ggplot(top$table, aes(x = logFC, y = -log10(PValue))) +
-  # Scatter points with color differentiation
-  geom_point(aes(color = color_group), alpha = 0.8, size = 3) +
-  
-  # Black threshold line
-  geom_hline(yintercept = dge_threshold, linetype = "dashed", color = "azure4", linewidth = 1.2) +
-  
-  # Customize colors
-  scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
-  
-  # Remove title and legend
-  labs(x = "Log2 Fold Change", y = "-Log10 P-Value") +
-  theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none",
-    plot.title = element_blank(),
-    axis.text = element_text(size = 14),
-    axis.title = element_text(size = 16)
-  ) +
-  
-  # Label significant genes with geom_text_repel
-  geom_text_repel(
-    data = highlight_data,
-    aes(label = rownames(highlight_data)),
-    size = 4.5,
-    box.padding = 0.4,
-    point.padding = 0.3,
-    segment.color = 'grey50',
-    max.overlaps = 10
-  )
-```
-
-```{r Extract differentially expressed genes}
-cn_ad$Test <- "CN_AD"
-mci_ad$Test <- "MCI_AD"
-cn_mci$Test <- "CN_MCI"
-
-cn_ad$Symbol <- rownames(cn_ad)
-mci_ad$Symbol <- rownames(mci_ad)
-cn_mci$Symbol <- rownames(cn_mci)
-
-df_dge <- rbind(cn_ad, mci_ad, cn_mci)
-df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors=FALSE)
-```
-
-```{r Save differentially expressed genes}
-if (median_filtering) {
-write.csv(df_dge, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/dge_gene_selection_median_filter.csv", row.names = TRUE)
-}else{
-  write.csv(df_dge, "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", row.names = TRUE)
+  ggplot(dge_result$table, aes(x = logFC, y = -log10(PValue))) +
+    geom_point(aes(color = color_group), alpha = 0.8, size = 2.5) +
+    geom_hline(yintercept = threshold, linetype = "dashed", color = "grey40") +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    labs(x = "Log2 Fold Change", y = "-Log10 P-Value", title = title) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "none") +
+    geom_text_repel(
+      data = highlight_df,
+      aes(label = rownames(highlight_df)),
+      size = 3.5,
+      box.padding = 0.4,
+      point.padding = 0.3,
+      segment.color = 'grey50',
+      max.overlaps = 15
+    )
 }
+
+
+disp_cn_ad <- estimateDisp(dge, design)
+et_cn_ad <- exactTest(disp_cn_ad, pair = c("CN", "AD"))
+top_cn_ad <- topTags(et_cn_ad, n = Inf, sort.by = "none")
+
+highlight_genes_cn_ad <- df_dge_original$Symbol[df_dge_original$Test == "CN_AD"]
+
+plot_volcano(top_cn_ad, threshold = 0.6, title = "CN vs AD", highlight_genes = highlight_genes_cn_ad)
+
+disp_cn_mci <- estimateDisp(dge, design)
+et_cn_mci <- exactTest(disp_cn_mci, pair = c("CN", "MCI"))
+top_cn_mci <- topTags(et_cn_mci, n = Inf, sort.by = "none")
+
+highlight_genes_cn_mci <- df_dge_original$Symbol[df_dge_original$Test == "CN_MCI"]
+
+plot_volcano(top_cn_mci, threshold = 0.6, title = "CN vs MCI", highlight_genes = highlight_genes_cn_mci)
+
+
+disp_mci_ad <- estimateDisp(dge, design)
+et_mci_ad <- exactTest(disp_mci_ad, pair = c("MCI", "AD"))
+top_mci_ad <- topTags(et_mci_ad, n = Inf, sort.by = "none")
+
+highlight_genes_mci_ad <- df_dge_original$Symbol[df_dge_original$Test == "CN_MCI"]
+
+plot_volcano(top_mci_ad, threshold = 0.6, title = "CN vs MCI", highlight_genes = highlight_genes_mci_ad)
 ```
 
+```{r Extracting top genes}
+# Threshold
+dge_threshold <- 0.6
+
+# CN vs AD
+sig_cn_ad <- subset(top_cn_ad$table, -log10(PValue) > dge_threshold)
+top_genes_cn_ad <- rownames(sig_cn_ad)
+
+# CN vs MCI
+sig_cn_mci <- subset(top_cn_mci$table, -log10(PValue) > dge_threshold)
+top_genes_cn_mci <- rownames(sig_cn_mci)
+
+# MCI vs AD
+sig_mci_ad <- subset(top_mci_ad$table, -log10(PValue) > dge_threshold)
+top_genes_mci_ad <- rownames(sig_mci_ad)
+
+plot_heatmap <- function(gene_list, title, dge_obj) {
+  # Get expression matrix (logCPM)
+  expr_matrix <- cpm(dge_obj, log = TRUE)[gene_list, ]
+
+  # Z-score normalization (row-wise)
+  z_expr <- t(scale(t(expr_matrix)))
+
+  # Sample group annotations
+  annotation_col <- data.frame(
+    Diagnosis = dge_obj$samples$group
+  )
+  rownames(annotation_col) <- colnames(z_expr)
+
+  # Plot heatmap
+  pheatmap(
+    z_expr,
+    annotation_col = annotation_col,
+    show_rownames = TRUE,
+    show_colnames = FALSE,
+    color = colorRampPalette(rev(brewer.pal(n = 7, name = "RdBu")))(100),
+    cluster_cols = TRUE,
+    cluster_rows = TRUE,
+    fontsize_row = 7,
+    main = title
+  )
+}
+
+plot_heatmap(top_genes_cn_ad, title = "Top DE Genes: CN vs AD", dge_obj = dge)
+plot_heatmap(top_genes_cn_mci, title = "Top DE Genes: CN vs MCI", dge_obj = dge)
+plot_heatmap(top_genes_mci_ad, title = "Top DE Genes: MCI vs AD", dge_obj = dge)
+
+sig_cn_ad$Test <- "CN_AD"
+sig_mci_ad$Test <- "MCI_AD"
+sig_cn_mci$Test <- "CN_MCI"
+
+sig_cn_ad$Symbol <- rownames(sig_cn_ad)
+sig_mci_ad$Symbol <- rownames(sig_mci_ad)
+sig_cn_mci$Symbol <- rownames(sig_cn_mci)
+
+df_dge <- rbind(sig_cn_ad, sig_mci_ad, sig_cn_mci)
+df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors=FALSE)
+
+write.csv(df_dge, "../data/microarray/dge_gene_selection_edger.csv", row.names = TRUE)
+```
 
 ```{r SAMR}
 
-sam <- SAM(x=filtered_gene_data, y=as.factor(filtered_meta_data$DXAGG), geneid = rownames(filtered_gene_info), genenames=filtered_gene_info$Symbol, resp.type="Multiclass", fdr.output=0.05)
+sam <- SAM(x=filtered_gene_data, y=as.factor(filtered_meta_data$DX), geneid = rownames(filtered_gene_info), genenames=filtered_gene_info$Symbol, resp.type="Multiclass", fdr.output=0.05)
 
 # plot results
 print(sam)
@@ -702,12 +200,12 @@ write.csv(sam[["siggenes.table"]][["genes.up"]], "/home/chris/Documents/CHUV/PhD
 # Function to run SAM analysis for a pairwise comparison
 run_sam_pairwise <- function(gene_data, gene_info, meta_data, group1, group2) {
   # Subset the data for the two groups
-  subset_indices <- which(meta_data$DXAGG %in% c(group1, group2))
+  subset_indices <- which(meta_data$DX %in% c(group1, group2))
   subset_gene_data <- gene_data[, subset_indices]
   subset_meta_data <- meta_data[subset_indices, ]
   
   # Convert the response to numeric (1 for group1, 2 for group2)
-  y <- as.numeric(as.factor(subset_meta_data$DXAGG))
+  y <- as.numeric(as.factor(subset_meta_data$DX))
   
   # Prepare the SAM input data
   sam_data <- list(

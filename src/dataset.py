@@ -6,103 +6,23 @@ from sklearn.linear_model import LinearRegression
 from sklearn.base import BaseEstimator, TransformerMixin
 
 # ------------------------------ Load datasets ------------------------------ #
+
+def load_cognition():
+    targets = ['ADNI_MEM', 'ADNI_EF', 'ADNI_LAN', 'ADNI_VS']
+    df_uwnpsychsum = pd.read_csv("../data/adnimerge/uwnpsychsum.csv").replace({"sc":"bl","Female":0, "Male":1}).drop(columns=["ADNI_EF"]).rename(columns={"ADNI_EF2" : "ADNI_EF"})
     
-def load_cognition(verbose=0):
-    """Load data from cognition dataset and return the merged dataframe with the demographic data.
-
-    Parameters
-    ----------
-    verbose : int, optional
-        _description_, by default 0
-
-    Returns
-    -------
-    _type_
-        _description_
-    """
-    
-    df_cog = pd.read_csv("../../../dataset/ADNI/neuropsychological/all_merged.csv", index_col=0).replace({"sc":"bl","Female":0, "Male":1})
-    df_adnimerge =  pd.read_csv("../../../dataset/ADNI/neuropsychological/all_adnimerged.csv", index_col=0)
-    df_inventory = pd.read_csv("../../../dataset/ADNI/neuropsychological/inventory.csv").replace({"sc":"bl","Female":0, "Male":1})
-    df_demog = pd.read_csv("../../../dataset/ADNI/adnimerge/ptdemog.csv").replace({"sc":"bl","Female":0, "Male":1})
-
-    df_cog.set_index(["RID", "VISCODE"], inplace=True)
-    df_adnimerge.set_index(["RID", "VISCODE"], inplace=True)
-    df_cog = df_cog.drop_duplicates()
-    df_adnimerge = df_adnimerge.bfill(limit=1).drop_duplicates()
-    df_adnimerge = df_adnimerge[~df_adnimerge.index.duplicated(keep="first")]
-    df_cog = df_cog[~df_cog.index.duplicated(keep="first")]
-    df_cog.update(df_adnimerge)
-    df_cog.reset_index(inplace=True)
-    df_cog_test = df_cog.drop(columns=["ADNI_EF"]).rename(columns={"ADNI_EF2" : "ADNI_EF"})
-    df_cognames = pd.DataFrame()
-
-    for file in os.listdir("../../../dataset/ADNI/neuropsychological/"):
-        if file.endswith(".csv"):
-            if file.startswith("adni_"):
-                df_temp = pd.read_csv("../../../dataset/ADNI/neuropsychological/"+file, header=1)
-                df_temp["Domain"] = file.replace("adni_", "").replace(".csv", "").upper()
-                df_temp["Variable"] = df_temp["Variable"].replace('\*','',regex=True).apply(str.upper)
-                df_cognames = pd.concat([df_cognames, df_temp], axis=0)
-
-    if verbose:
-        print(df_cognames.Description.tolist())
-
-    memory_features = df_cognames[df_cognames.Domain == "MEMORY"].Variable.tolist()
-    executive_features = df_cognames[df_cognames.Domain == "EXECUTIVE"].Variable.tolist()
-    language_features = df_cognames[df_cognames.Domain == "LANGUAGE"].Variable.tolist()
-    visual_features = df_cognames[df_cognames.Domain == "VISUOSPATIAL"].Variable.tolist()
-
-    if verbose : 
-        print(f"MEMORY - Total items : {len(memory_features)}, Selected items : {len(df_cog_test.columns.intersection(memory_features))}")
-        print(f"EXECUTIVE - Total items : {len(executive_features)}, Selected items : {len(df_cog_test.columns.intersection(executive_features))}")
-        print(f"LANGUAGE - Total items : {len(language_features)}, Selected items : {len(df_cog_test.columns.intersection(language_features))}")
-        print(f"VISUOSPATIAL - Total items : {len(visual_features)}, Selected items : {len(df_cog_test.columns.intersection(visual_features))}")
-
-    agg_targets = ['ADNI_MEM', 'ADNI_EF', 'ADNI_LAN', 'ADNI_VS']
-    sep_targets = ['MMDATE', 'MMYEAR', 'MMMONTH', 'MMDAY',
-        'MMSEASON', 'MMHOSPIT', 'MMFLOOR', 'MMCITY', 'MMAREA', 'MMSTATE',
-        'MMREPEAT', 'MMHAND', 'MMFOLD', 'MMONFLR', 'MMREAD', 'MMWRITE',
-        'MMDRAW', 'CLOCKCIRC', 'CLOCKSYM', 'CLOCKNUM', 'CLOCKHAND', 'CLOCKTIME',
-        'COPYCIRC', 'COPYSYM', 'COPYNUM', 'COPYTIME', 'AVTOT1', 'AVTOT2',
-        'AVTOT3', 'AVTOT4', 'AVTOT5', 'AVTOT6', 'AVTOTB', 'CATANIMSC',
-        'TRAASCOR', 'TRABSCOR', 'BNTTOTAL', 'AVDEL30MIN', 'AVDELTOT']
-
-    df_cog_test = df_cog_test.merge(df_inventory[["RID", "PTID"]], how="left").drop_duplicates()
-    for col in sep_targets:
-        df_cog_test[col] = pd.to_numeric(df_cog_test[col])
-
-    df_cog_merge = df_cog_test.merge(df_inventory[["RID", "PTID"]], how="left").rename(columns={"PTID":"SubjectID"})
-    df_cog_merge = df_cog_merge.drop_duplicates(subset=["RID", "VISCODE"])
-
-    return df_cog_merge, df_demog, agg_targets, sep_targets
+    return df_uwnpsychsum, targets
 
 def load_brain_imaging():
-
     df_all = pd.read_csv("../../../dataset/ADNI/ALL_3.csv").replace({"sc":"bl","Female":0, "Male":1})
-    df_PETMRI = pd.read_csv("../../../dataset/ADNI/MRI_PET_data.csv").replace({"sc":"bl","ADNI2 Baseline-New Pt":"bl","Female":0, "m00":"bl", "Male":1})
-    df_PET = df_PETMRI[['Visit', 'Scan Date', 'Image ID', 'SubjectID', 'ScanDate', 'ImageUID',
-            'VISCODE_PET', 'path_PET','Research Group_PET',  'PET_ID', 
-            'PET_Vol', 'status_encode']].rename(columns={"VISCODE_PET":"VISCODE"}).replace({"sc":"bl","Female":0, "Male":1})
-    df_MRI = df_PETMRI[['Visit', 'Scan Date', 'Image ID', 'SubjectID', 'ScanDate', 'ImageUID',
-        'VISCODE_MRI', 'path_MRI', 'Research Group_MRI', 'MRI_ID', 
-        'MRI_Vol', 'status_encode']].rename(columns={"VISCODE_MRI":"VISCODE"}).replace({"sc":"bl","Female":0, "Male":1})
-    
-    df_inventory = pd.read_csv("../../../dataset/ADNI/neuropsychological/inventory.csv").replace({"sc":"bl","Female":0, "Male":1})
 
-    df_PET.columns = df_PET.columns.str.replace("_PET", "") 
-    df_MRI.columns = df_MRI.columns.str.replace("_MRI", "") 
-
-    df_MRI = df_MRI.merge(df_inventory[["PTID", "RID"]].rename(columns={"PTID":"SubjectID"})).drop_duplicates()
-    df_PET = df_PET.merge(df_inventory[["PTID", "RID"]].rename(columns={"PTID":"SubjectID"})).drop_duplicates()
-
-    return df_all, df_MRI, df_PET
+    return df_all
 
 def load_transcriptomics():
-    df_counts = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_counts.csv", index_col=0)
-    df_samples = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_samples.csv", index_col=0)
-    df_genes = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/filtered_genes.csv", index_col=0)
-    df_dge = pd.read_csv("../../../dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", index_col=0)
+    df_counts = pd.read_csv("../data/microarray/gene_counts.csv", index_col=0)
+    df_samples = pd.read_csv("../data/microarray/samples.csv", index_col=0)
+    df_genes = pd.read_csv("../data/microarray/genes.csv", index_col=0)
+    df_dge = pd.read_csv("../data/microarray/dge_results_limma.csv", index_col=0)
 
     df_counts = df_counts.transpose()
     df_counts = df_counts.loc[:, df_counts.columns.isin(df_dge.Symbol)]
@@ -114,14 +34,75 @@ def load_transcriptomics():
     return df_counts, df_dge
 
 def load_CSF():
-    df_CSF = pd.read_csv("../../../dataset/ADNI/adnimerge/csfbiomk.csv").replace({"sc":"bl","Female":0, "Male":1})
-    return df_CSF
+    df_adni_roche_elecsys = pd.read_csv("../data/ida/UPENNBIOMK_ROCHE_ELECSYS_02Jun2025.csv").replace({"sc": "bl", "Female": 0, "Male": 1})
+    df_adni_roche_elecsys = df_adni_roche_elecsys.rename(columns={"VISCODE2": "VISCODE", "PHASE": "ORIGPROT", "ABETA42": "ABETA"})
+
+    df_upennbiomk12_2020 = pd.read_csv("../data/adnimerge/upennbiomk12_2020.csv").replace({"sc": "bl", "Female": 0, "Male": 1})
+    df_upennbiomk_master = pd.read_csv("../data/adnimerge/upennbiomk_master.csv").replace({"sc": "bl", "Female": 0, "Male": 1})
+
+    df_upennbiomk12_2020["BATCH"] = "UPENNBIOMK12_2020"
+    df_upennbiomk_master = pd.concat([df_upennbiomk_master, df_upennbiomk12_2020])
+
+    df_upenn_all = pd.concat([
+        df_upennbiomk_master,
+        df_adni_roche_elecsys
+    ], axis=0)
+
+    df_upenn_all.sort_values(by=["RID", "VISCODE"], inplace=True)
+    df_upenn_all.drop_duplicates(subset=["RID", "VISCODE"], keep="last", inplace=True)
+
+        # Define which biomarker maps to which column
+    censor_column_map = {
+        "Abeta42": "ABETA",
+        "Tau": "TAU",
+        "PTau": "PTAU",
+        "Ptau": "PTAU",  # handle case inconsistency
+    }
+
+    def parse_censor_comment(comment, censored_column_map):
+        """
+        Parse a censor comment and return a dictionary mapping biomarker columns
+        to imputed values (based on censoring thresholds).
+        """
+        if pd.isnull(comment):
+            return {}
+
+        result = {}
+        tokens = comment.split(',')
+        for token in tokens:
+            token = token.strip()
+
+            # Match expressions like "Abeta42>1700", "Tau<80"
+            match = re.match(r"(Abeta42|Tau|PTau|Ptau)\s*([<>])\s*(\d+)", token)
+            if match:
+                biomarker, op, value = match.groups()
+                column = censor_column_map.get(biomarker)
+                value = float(value)
+                if op == '>':
+                    result[column] = value  # or value + epsilon
+                elif op == '<':
+                    result[column] = value  # or value - epsilon
+            # Optionally handle known non-numeric entries (e.g. "Sample Hemolyzed")
+            # else: you can log or ignore
+        return result
+
+    # Assuming your df has columns: COMMENT, ABETA, TAU, PTAU
+    for idx, row in df_upenn_all.iterrows():
+        if pd.isnull(row["COMMENT"]):
+            continue
+        updates = parse_censor_comment(row["COMMENT"], censored_column_map=censor_column_map)
+        for col, val in updates.items():
+            if pd.isnull(row[col]):
+                df_upenn_all.at[idx, col] = val
+
+    return df_upenn_all
+
 
 def load_apoe():
-    df_apoe2 =  pd.read_csv("../../../dataset/ADNI/adnimerge/apoego2.csv")
-    df_apoe3 = pd.read_csv("../../../dataset/ADNI/adnimerge/apoe3.csv")
+    df_apoe_adnigo2 =  pd.read_csv("../data/adnimerge/apoego2.csv")
+    df_apoe_adni3 = pd.read_csv("../data/adnimerge/apoe3.csv")
 
-    df_apoe = pd.concat([df_apoe2, df_apoe3])
+    df_apoe = pd.concat([df_apoe_adnigo2, df_apoe_adni3])
     df_apoe = df_apoe[["ORIGPROT", "RID", "SITEID", "APGEN1", "APGEN2"]]
 
     df_genotype = pd.concat([df_apoe, df_apoe[["APGEN1", "APGEN2"]].apply(lambda s: s.value_counts(), axis=1).fillna(0).add_prefix('APOE_epsilon')], axis=1).drop(columns=["SITEID", "APGEN1", "APGEN2"])
@@ -539,4 +520,3 @@ class Preprocessing:
         y = y[~is_outlier]
 
         return X, y, is_outlier
-    

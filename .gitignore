@@ -9,6 +9,8 @@ __pycache__/
 # R Markdown
 *.html
 *.Rproject
+*.RData
+*.Rhistory
 
 # Data
 *.csv

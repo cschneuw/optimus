@@ -4,11 +4,10 @@ version = "0.1.0"
 description = ""
 authors = ["cschneuw <christelle.schneuwly.diaz@gmail.com>"]
 readme = "README.md"
-package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.10"
-numpy = "2.1"
+numpy = "<2.0"
 scipy = "^1.15.2"
 pandas = "^2.2.3"
 scikit-learn = "^1.6.1"
@@ -23,9 +22,10 @@ matplotlib-venn = "^1.1.2"
 MissForest = "^4.2.3"
 numba = "^0.61.0"
 shap = "^0.47.1"
-tabpfn = "^2.0.8"
 shapiq = "^1.2.3"
 hyperopt = "^0.2.7"
+openpyxl = "^3.1.5"
+pytorch-tabular = "^1.1.1"
 
 
 [build-system]

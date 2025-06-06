@@ -253,12 +253,9 @@ df_FinalCombination = correct_age_viscode_increment(df_FinalCombination)
 
 df_FinalCombination.PTGENDER.value_counts()
 
-
 df_FinalCombination.to_csv("../../../dataset/ADNI/combined_dataset.csv", index=False)
 
-
 df_FinalCombination[["PTAU", "TAU", "ABETA"]] = df_FinalCombination[["PTAU", "TAU", "ABETA"]].apply(lambda x : x.str.replace(">|<","", regex=True)).apply(pd.to_numeric)
-
 
 df_predict = df_FinalCombination.loc[:, ["RID", "VISCODE"]+select_features]
 

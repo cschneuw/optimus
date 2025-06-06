@@ -1,0 +1,501 @@
+---
+title: "ADNI_RNA_microarray_preprocessing"
+author: "Christelle Schneuwly Diaz"
+date: "2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Differential expression analysis 
+
+This section imports the raw gene expression data from the ADNI study, generated using the Affymetrix Human Genome U219 Array. The data file comprises sample metadata in the top rows and probe-level expression data below. The code extracts and structures the sample metadata (meta_data), probe annotations (gene_info), and the expression matrix (gene_data) for downstream analysis.
+
+```{r Import packages and data}
+library(ADNIMERGE)
+
+library(reshape2)
+library(tidyverse)
+library(mixtools)
+
+library(ggplot2)
+
+# Step 1: Read the raw file as-is
+# Load raw CSV without assuming headers
+raw <- read.csv("../data/ida/ADNI_Gene_Expression_Profile.csv", header = FALSE, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE)
+
+data(adnimerge)
+all3 <- read.csv("../data/ida/ALL_3.csv", header = TRUE, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE)
+
+# ----------------------------
+# Extract column metadata
+# ----------------------------
+
+# Rows 1 to 8, columns 4 onward
+col_metadata_raw <- raw[1:8, 4:ncol(raw)]
+
+# Transpose to get samples as rows
+col_metadata <- as.data.frame(t(col_metadata_raw), stringsAsFactors = FALSE)
+col_metadata <- col_metadata[-nrow(col_metadata), ]
+
+# Set proper column names
+colnames(col_metadata) <- as.character(raw[1:8, 1])
+
+# Set SubjectID as row names
+col_metadata$SubjectID <- make.unique(col_metadata$SubjectID)  # ensure uniqueness
+rownames(col_metadata) <- col_metadata$SubjectID
+
+# Optional: drop duplicate SubjectID column (since it's now rownames)
+# col_metadata$SubjectID <- NULL
+
+# ----------------------------
+# Extract row metadata
+# ----------------------------
+
+# Rows 9 onward, columns 1 to 3
+row_metadata <- raw[10:nrow(raw), 1:3]
+colnames(row_metadata) <- c("ProbeSet", "LocusLink", "Symbol")
+rownames(row_metadata) <- row_metadata$ProbeSet
+row_metadata$Description <- raw[10:nrow(raw), ncol(raw)]
+
+# ----------------------------
+# Extract expression matrix
+# ----------------------------
+
+# Rows 9 onward, columns 4 onward
+expr_data <- raw[10:nrow(raw), 5:ncol(raw)-1]
+expr_matrix <- apply(expr_data, 2, as.numeric)  # convert all to numeric
+
+# Add column names from col_metadata (SubjectID) and row names from ProbeSet
+colnames(expr_matrix) <- rownames(col_metadata)
+rownames(expr_matrix) <- row_metadata$ProbeSet
+
+# ----------------------------
+# Convert to data.frame
+# ----------------------------
+
+expression_matrix <- as.data.frame(expr_matrix)
+
+# ----------------------------
+# Check alignment
+# ----------------------------
+
+stopifnot(all(colnames(expression_matrix) == rownames(col_metadata)))
+stopifnot(all(rownames(expression_matrix) == rownames(row_metadata)))
+
+gene_info <- row_metadata
+gene_data <- expression_matrix
+meta_data <- col_metadata
+```
+
+
+```{r Formatting}
+
+# ----------------------------
+# Helper: Convert Probe Symbols that Resemble Dates
+# ----------------------------
+convert_date_format <- function(date_str) {
+  if (grepl("^\\d+-[A-Za-z]+", date_str)) {
+    # Match strings like "12-Dec" and convert to "DEC12"
+    parts <- strsplit(date_str, "-")[[1]]
+    converted_str <- paste(toupper(substr(parts[2], 1, 3)), parts[1], sep = "")
+    return(converted_str)
+  } else {
+    # Leave other strings unchanged
+    return(date_str)
+  }
+}
+
+gene_info$Symbol <- sapply(gene_info$Symbol, convert_date_format)
+
+# ----------------------------
+# Drop Non-Expression Columns from Gene Data
+# ----------------------------
+gene_data <- gene_data[ , !(names(gene_data) %in% c("LocusLink", "Symbol", "GeneInfo"))]
+
+# ----------------------------
+# Set Proper Rownames for Gene Data and Info
+# ----------------------------
+rownames(gene_data) <- gene_data$ProbeSet
+gene_data$ProbeSet <- NULL
+
+rownames(gene_info) <- gene_info$ProbeSet
+gene_info$ProbeSet <- NULL
+
+# ----------------------------
+# Check Alignment of Gene Data with Metadata
+# ----------------------------
+all(colnames(gene_data) %in% rownames(meta_data))
+all(colnames(gene_data) == rownames(meta_data))
+
+# ----------------------------
+# 10. Convert All Gene Expression Values to Numeric
+# ----------------------------
+to_numeric <- function(x) {
+  as.numeric(x)
+}
+
+# Apply safely across all columns with suppression of warnings
+numeric_gene_data <- apply(gene_data, 2, function(col) suppressWarnings(to_numeric(col)))
+gene_data <- as.data.frame(numeric_gene_data)
+
+# ----------------------------
+# Rename Column in ADNIMERGE for Consistency
+# ----------------------------
+names(adnimerge)[names(adnimerge) == "VISCODE"] <- "Visit"
+```
+
+ 
+
+```{r Plot raw data}
+# ----------------------------
+# Set Row Names for Gene Data
+# ----------------------------
+# Ensure gene_data has gene_info rownames (after preprocessing step)
+rownames(gene_data) <- rownames(gene_info)
+
+# ----------------------------
+# Random Sampling of Patients for Plotting
+# ----------------------------
+num_samples <- 30  # Adjust number of patients as desired
+set.seed(123)  # For reproducibility
+sampled_patients <- sample(colnames(gene_data), num_samples)
+
+# ----------------------------
+# Subset and Transpose Gene Data for Plotting
+# ----------------------------
+gene_data_sampled <- gene_data[, sampled_patients]
+gene_data_sampled_transposed <- as.data.frame(t(gene_data_sampled))
+
+# ----------------------------
+# Prepare Long-Format Data for ggplot2
+# ----------------------------
+gene_data_sampled_melted <- melt(gene_data_sampled_transposed, variable.name = "Gene", value.name = "Expression")
+gene_data_sampled_melted$Sample <- rownames(gene_data_sampled_transposed)
+
+# ----------------------------
+# Boxplot of Expression Distributions per Sample
+# ----------------------------
+ggplot(gene_data_sampled_melted, aes(x = Sample, y = Expression)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Boxplot of Gene Expression Values (Sampled Patients)", 
+       x = "Samples", y = "Expression")
+
+# ----------------------------
+# Density Plot of Expression per Sample
+# ----------------------------
+ggplot(gene_data_sampled_melted, aes(x = Expression, color = Sample)) +
+  geom_density() +
+  labs(title = "Density Plot of Gene Expression Values (Sampled Patients)", 
+       x = "Expression", y = "Density")
+
+```
+# Aggregating Probe-Level Data to Gene-Level Expression
+
+To enhance the interpretability of microarray data, we consolidate probe-level measurements into gene-level summaries. This process involves selecting the probe with the highest expression value for each gene, ensuring that the most representative signal is captured. We then assign gene symbols as row names and remove any entries lacking valid gene annotations. This step is crucial for downstream analyses, as it aligns the expression data with known gene identifiers, facilitating biological interpretation and integration with other datasets.
+
+```{r Remove noise}
+# ----------------------------
+# Function to compute the maximum expression count per gene Symbol across samples
+# ----------------------------
+
+get_max_counts <- function(gene_data, gene_info) {
+  gene_data <- as.data.frame(gene_data)
+  gene_info <- as.data.frame(gene_info)
+  
+  gene_data$ProbeSet <- rownames(gene_data)
+  gene_info$ProbeSet <- rownames(gene_info)
+  
+  combined_data <- gene_data %>% 
+    left_join(select(gene_info, c("ProbeSet", "Symbol")), by = "ProbeSet")
+  
+  # Check alignment after join
+  if (is.null(combined_data)) {
+    stop("Left join failed. Check if ProbeSet exists in both data frames.")
+  }
+  
+  sample_cols <- combined_data %>% 
+    select(where(is.numeric)) %>% 
+    colnames()
+  
+  max_counts <- combined_data %>%
+    pivot_longer(cols = all_of(sample_cols), names_to = "Sample", values_to = "Count") %>%
+    group_by(Symbol, Sample) %>%
+    summarise(max_count = max(Count, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = "Sample", values_from = "max_count")
+
+  return(max_counts)
+}
+```
+
+# Aggregating Probe-Level Data to Gene-Level Expression
+
+To enhance the interpretability of microarray data, we consolidate probe-level measurements into gene-level summaries. This process involves selecting the probe with the highest expression value for each gene, ensuring that the most representative signal is captured. We then assign gene symbols as row names and remove any entries lacking valid gene annotations. This step is crucial for downstream analyses, as it aligns the expression data with known gene identifiers, facilitating biological interpretation and integration with other datasets.
+
+```{r Aggregate probes}
+
+# ----------------------------
+# Compute the maximum expression count per gene Symbol across samples
+# ----------------------------
+# Step 1: Collapse probe-level to gene-level
+gene_data_merged <- get_max_counts(gene_data, gene_info)
+
+# Step 2: Drop rows with empty or missing Symbols
+gene_data_merged <- gene_data_merged[!is.na(gene_data_merged$Symbol) & gene_data_merged$Symbol != "", ]
+# Now assign rownames from Symbol
+
+gene_data_merged <- as.data.frame(gene_data_merged)
+rownames(gene_data_merged) <- gene_data_merged$Symbol
+
+# Drop the Symbol column
+# Step 4: Drop the Symbol column safely using `dplyr::select()`
+gene_data_merged <- gene_data_merged %>% dplyr::select(-Symbol)
+
+# Step 3: Finalize data structure for EdgeR
+# Store Symbol as rownames and drop Symbol column
+
+# Step 4: Ensure sample names match
+if (!all(colnames(gene_data_merged) == rownames(meta_data))) {
+  cat("❌ Sample names do not match between expression and meta_data!\n")
+  cat("In gene_data_merged but not in meta_data:\n")
+  print(setdiff(colnames(gene_data_merged), rownames(meta_data)))
+  cat("In meta_data but not in gene_data_merged:\n")
+  print(setdiff(rownames(meta_data), colnames(gene_data_merged)))
+}
+# Reorder meta_data to match gene_data_merged
+meta_data <- meta_data[colnames(gene_data_merged), ]
+
+# Step 5: Process gene_info
+# Remove rows with missing/empty Symbol
+gene_info <- gene_info[!is.na(gene_info$Symbol) & gene_info$Symbol != "", ]
+
+# Remove duplicated Symbols (keep first)
+gene_info <- gene_info[!duplicated(gene_info$Symbol), ]
+
+# Assign Symbol as rownames
+rownames(gene_info) <- gene_info$Symbol
+
+# Align gene_info with gene_data_merged
+gene_info <- gene_info[rownames(gene_data_merged), ]
+
+# Final check — stop if gene names don't match
+stopifnot(identical(rownames(gene_data_merged), rownames(gene_info)))
+  
+```
+## Integrate Clinical and Imaging Data from ADNI
+
+In this section, we incorporate additional datasets to enrich our analysis:
+- all3: A preprocessed dataset containing imaging-derived features, demographic information, and neuropsychological assessments from the ADNI study. This dataset facilitates the integration of multimodal data for comprehensive analyses.
+- adnimerge: A comprehensive dataset provided by the ADNI project, encompassing longitudinal clinical, imaging, and biomarker data. It includes variables such as diagnosis (DX), cognitive scores, and imaging summaries, serving as a foundational resource for Alzheimer's disease research.
+
+This section harmonizes diagnostic labels across multiple ADNI data sources. It standardizes diagnostic categories, resolves discrepancies between sources, and integrates the finalized diagnoses into the metadata for subsequent analyses.
+
+```{r Diagnostic groups update}
+# ADNImerge-derived DX matrix
+dx_adnimerge_matrix <- adnimerge %>%
+  rename(SubjectID = PTID) %>%
+  select(SubjectID, Visit, DX, DX.bl) %>%
+  filter(SubjectID %in% meta_data$SubjectID) %>%
+  mutate(across(c(DX, DX.bl), as.character)) %>%
+  mutate(across(c(DX, DX.bl), ~ case_when(
+    . %in% c("LMCI", "EMCI") ~ "MCI",
+    . == "Dementia" ~ "AD",
+    TRUE ~ .
+  ))) %>%
+  distinct() %>%
+  mutate(across(c(SubjectID, Visit), as.character))
+
+# ALL3-derived DX matrix
+dx_all3_matrix <- all3 %>%
+  rename(DX.bl = DX_bl) %>% 
+  select(SubjectID, VISCODE, DX, DX.bl) %>%
+  rename(Visit = VISCODE) %>%
+  filter(SubjectID %in% meta_data$SubjectID) %>%
+  mutate(across(c(DX, DX.bl), ~ case_when(
+    . %in% c("LMCI", "EMCI") ~ "MCI",
+    . == "Dementia" ~ "AD",
+    TRUE ~ .
+  ))) %>%
+  distinct() %>%
+  mutate(across(c(SubjectID, Visit), as.character))
+
+# ── Step 2: Standardize Visit codes in meta_data ────────────────
+
+# Ensure meta_data Visit column is character type
+meta_data <- meta_data %>%
+  mutate(across(c(SubjectID, Visit), as.character))
+
+# Map ADNI2 VISCODE to VISCODE2 using inventory
+viscode_map_unique <- inventory %>%
+  select(VISCODE, VISCODE2) %>%
+  distinct(VISCODE, .keep_all = TRUE)
+
+is_adni2 <- meta_data$Phase == "ADNI2"
+
+# Carefully apply mapping only where match exists
+matches <- match(meta_data$Visit[is_adni2], viscode_map_unique$VISCODE)
+has_match <- !is.na(matches)
+meta_data$Visit[is_adni2][has_match] <- viscode_map_unique$VISCODE2[matches[has_match]]
+
+# ── Step 3: Combine DX sources ─────────────────────────────────
+
+dx_combined <- dx_adnimerge_matrix %>%
+  full_join(dx_all3_matrix, by = c("SubjectID", "Visit"), suffix = c(".adni", ".all3")) %>%
+  mutate(
+    DX_conflict = !is.na(DX.adni) & !is.na(DX.all3) & DX.adni != DX.all3,
+    DXbl_conflict = !is.na(DX.bl.adni) & !is.na(DX.bl.all3) & DX.bl.adni != DX.bl.all3,
+    DX_final = coalesce(DX.all3, DX.adni),
+    DX_bl_final = coalesce(DX.bl.all3, DX.bl.adni)
+  ) %>%
+  select(SubjectID, Visit, DX_final, DX_bl_final) %>%
+  arrange(SubjectID, Visit) %>%                             # Sort by SubjectID and Visit
+  mutate(across(where(is.character), ~na_if(., ""))) %>%    # Replace "" with NA
+  group_by(SubjectID) %>%
+  fill(everything(), .direction = "down") %>%               # Fill NAs down within each SubjectID
+  ungroup()
+
+
+# ── Step 4: Merge final DX into meta_data ──────────────────────
+
+meta_data_with_dx <- meta_data %>%
+  left_join(dx_combined, by = c("SubjectID", "Visit"))
+
+# Step 1: Get majority vote per SubjectID in dx_combined
+majority_dx <- dx_combined %>%
+  filter(!is.na(DX_final)) %>%
+  group_by(SubjectID) %>%
+  summarise(
+    DX_final_majority = names(which.max(table(DX_final))),
+    .groups = "drop"
+  )
+
+majority_dx_bl <- dx_combined %>%
+  filter(!is.na(DX_bl_final)) %>%
+  group_by(SubjectID) %>%
+  summarise(
+    DX_bl_final_majority = names(which.max(table(DX_bl_final))),
+    .groups = "drop"
+  )
+
+# Step 2: Merge majority vote back to meta_data_with_dx
+meta_data_with_dx_filled <- meta_data_with_dx %>%
+  left_join(majority_dx, by = "SubjectID") %>%
+  left_join(majority_dx_bl, by = "SubjectID") %>%
+  mutate(
+    DX_final = coalesce(DX_final, DX_final_majority),
+    DX_bl_final = coalesce(DX_bl_final, DX_bl_final_majority)
+  ) %>%
+  select(-DX_final_majority, -DX_bl_final_majority)
+
+
+meta_data <- meta_data_with_dx_filled
+
+meta_data$DX <- meta_data$DX_final
+rownames(meta_data) <- meta_data$SubjectID
+
+gene_data_merged_copy <- gene_data_merged
+
+meta_data <- meta_data[match(colnames(gene_data_merged), rownames(meta_data)), ]
+gene_info <- gene_info[match(rownames(gene_data_merged), rownames(gene_info)), ]
+
+write.csv(gene_data_merged, "../data/ida/gene_counts.csv", row.names = TRUE)
+gene_info <- data.frame(lapply(gene_info, as.character), stringsAsFactors=FALSE)
+write.csv(gene_info, "../data/ida/genes.csv", row.names = TRUE)
+write.csv(meta_data, "../data/ida/samples.csv", row.names = TRUE)
+```
+
+# Filtering Lowly Expressed Genes Using a Gaussian Mixture Model
+
+To enhance the reliability of downstream analyses, we filter out lowly expressed genes that may introduce noise. Utilizing the edgeR package, we construct a DGEList object incorporating count data, sample metadata, and gene annotations. Instead of applying arbitrary thresholds, we employ a Gaussian Mixture Model (GMM) via the normalmixEM function to model the distribution of median gene counts across samples. This approach allows us to identify a data-driven threshold at the intersection point of the two fitted distributions, effectively distinguishing between low and high expression genes. Genes with median counts below this threshold are excluded, resulting in a refined dataset (filtered_gene_data, filtered_gene_info, and filtered_meta_data) optimized for differential expression analysis.
+
+
+```{r Remove Low expressed genes}
+
+meta_data <- meta_data_with_dx_filled
+
+meta_data$DX <- meta_data$DX_final
+rownames(meta_data) <- meta_data$SubjectID
+
+gene_data_merged_copy <- gene_data_merged
+
+meta_data <- meta_data[match(colnames(gene_data_merged), rownames(meta_data)), ]
+gene_info <- gene_info[match(rownames(gene_data_merged), rownames(gene_info)), ]
+
+# Step 5: EdgeR filtering setup
+dge <- DGEList(
+  counts = gene_data_merged,
+  samples = meta_data,
+  genes = gene_info,
+  group = factor(meta_data$DX)
+)
+
+design <- model.matrix(~ 0 + factor(meta_data$DX))
+design <- design[, -1]
+
+# Step 6: GMM mixture model on median counts
+median_counts <- apply(dge$counts, 1, median)
+EM_data <- normalmixEM(median_counts, k = 2, mu = c(2.4, 6.2), sigma = c(1.5, 6),
+                       arbvar = FALSE, epsilon = 1e-05)
+
+cat(summary(EM_data))
+
+# Threshold calculation from GMM parameters
+intersect <- function(m1, sd1, m2, sd2, p1, p2) {
+  B <- (m1 / sd1^2 - m2 / sd2^2)
+  A <- 0.5 * (1 / sd2^2 - 1 / sd1^2)
+  C <- 0.5 * (m2^2 / sd2^2 - m1^2 / sd1^2) - log((sd1 / sd2) * (p2 / p1))
+  if (A != 0) {
+    (-B + c(1, -1) * sqrt(B^2 - 4 * A * C)) / (2 * A)
+  } else {
+    -C / B
+  }
+}
+
+# m1 <- 2.694569; sd1 <- 0.475055
+# m2 <- 6.781961; sd2 <- 1.978887
+# p1 <- 0.386347; p2 <- 0.613653
+
+m1 <- EM_data$mu[1]
+m2 <- EM_data$mu[2]
+sd1 <- EM_data$sigma[1]
+sd2 <- EM_data$sigma[2]
+p1 <- EM_data$lambda[1]
+p2 <- EM_data$lambda[2]
+threshold <- intersect(m1, sd1, m2, sd2, p1, p2)[2]
+
+cat("Threshold:", threshold, "\n")
+
+# Visualization before filtering
+hist(median_counts, prob = TRUE, main = "Histogram of Median Gene Counts", xlab = "Median Gene Counts")
+plot(EM_data, which = 2)
+lines(density(median_counts), lty = 2, lwd = 2, col = "black")
+abline(v = threshold, col = "blue", lwd = 2)
+
+# Step 7: Apply GMM threshold to filter genes
+keep <- median_counts > threshold
+dge <- dge[keep, , keep.lib.sizes = FALSE]
+
+# Post-filter visualization
+median_counts <- apply(dge$counts, 1, median)
+hist(median_counts, prob = TRUE, main = "Filtered Median Counts", xlab = "Median Gene Counts")
+lines(density(median_counts), lty = 2, lwd = 2, col = "black")
+
+# Step 8: Store filtered results
+filtered_gene_data <- as.data.frame(dge$counts)
+filtered_gene_info <- as.data.frame(dge$genes)
+filtered_meta_data <- as.data.frame(dge$samples)
+```
+
+```{r Save Filtered Genes}
+
+gene_data_merged <- filtered_gene_data
+
+write.csv(filtered_gene_data, "../data/ida/filtered_counts.csv", row.names = TRUE)
+filtered_genes <- data.frame(lapply(filtered_gene_info, as.character), stringsAsFactors=FALSE)
+write.csv(filtered_genes, "../data/ida/filtered_genes.csv", row.names = TRUE)
+write.csv(filtered_meta_data, "../data/ida/filtered_samples.csv", row.names = TRUE)
+
+```
