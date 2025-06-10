@@ -74,3 +74,22 @@ def check_row_overlap(df1, df2, common_columns, df1_label="df1", df2_label="df2"
     print(f"\nSample rows only in {df2_label}:")
     for row in list(only_in_df2)[:5]:
         print(row)
+
+def check_duplicated_merged_df(df_merged): 
+    dup_subset = ["RID", "VISCODE"]  # <-- replace with your subset
+    duplicates = df_merged[df_merged.duplicated(subset=dup_subset, keep=False)]
+    duplicates_sorted = duplicates.sort_values(by=dup_subset)
+    grouped = duplicates_sorted.groupby(dup_subset)
+
+    def highlight_differences_ignore_nan(group):
+        filled = group.fillna("__nan__")
+        diffs = filled != filled.iloc[0]
+        return group.loc[:, diffs.any()]
+
+    for name, group in grouped:
+        group_filled = group.fillna("__nan__")  # Replace NaN with sentinel value
+        diffs = group_filled != group_filled.iloc[0]
+        differing_cols = diffs.any(axis=0)
+        if differing_cols.any():
+            print(f"\nDifferences in group {name}:")
+            print(group.loc[:, differing_cols])

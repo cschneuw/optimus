@@ -9,6 +9,7 @@ from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, explained_variance_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from pytorch_tabnet.tab_model import TabNetRegressor
 
@@ -153,7 +154,6 @@ def train_imputer_model(
         ])
 
          # Separate imputers for ordinal and continuous data
-
         # Fit and transform, then convert back to DataFrame with original column names
 
         if df_X_train.isna().any().any():
@@ -167,7 +167,6 @@ def train_imputer_model(
             X_train_imputed = pipeline.transform(df_X_train)
             df_X_train_imputed = df_X_train.copy()
             df_X_train_imputed[ordinal_features+continuous_features] = X_train_imputed
-
         else :
             print("No NaN in train data -> Keep as it is. ")
             df_X_train_imputed = df_X_train
@@ -175,8 +174,7 @@ def train_imputer_model(
             impute_model_time = None
 
         # Transform the test set
-        if df_X_test.isna().any().any():
-             
+        if df_X_test.isna().any().any(): 
             X_test_imputed = pipeline.transform(df_X_test)
             df_X_test_imputed = df_X_test.copy()
             df_X_test_imputed[ordinal_features+continuous_features] = X_test_imputed
@@ -184,10 +182,8 @@ def train_imputer_model(
             print("No NaN in test data -> Keep as it is. ")
             df_X_test_imputed = df_X_test
 
-
     # Demographics adjustment for y
     demographic_adjustment_y = DemographicAdjustmentTransformer()
-    
     y_train_adjusted = demographic_adjustment_y.fit_transform(df_y_train, c_train)
     y_test_adjusted = demographic_adjustment_y.transform(df_y_test, c_test)
 
@@ -195,6 +191,12 @@ def train_imputer_model(
     demographic_adjustment_X = DemographicAdjustmentTransformer(categorical_columns=ordinal_features)
     X_train_adjusted = demographic_adjustment_X.fit_transform(df_X_train_imputed, c_train)
     X_test_adjusted = demographic_adjustment_X.transform(df_X_test_imputed, c_test)
+
+    # Standardize only continuous features
+    scaler = StandardScaler()
+
+    X_train_adjusted[continuous_features] = scaler.fit_transform(X_train_adjusted[continuous_features])
+    X_test_adjusted[continuous_features] = scaler.transform(X_test_adjusted[continuous_features])
 
     # Perform prediction and save variables
     start = time.time()
@@ -206,7 +208,7 @@ def train_imputer_model(
         X_test_adjusted = X_test_adjusted.values
         #y_test_adjusted = y_test_adjusted.values
     
-    model.fit(X_train_adjusted, y_train_adjusted)
+    model.fit(X_train_adjusted, y_train_adjusted) 
     end = time.time()
 
     predict_model_time = end - start
@@ -270,3 +272,4 @@ def train_imputer_model(
         }
 
     return dict_results
+

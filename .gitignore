@@ -5,6 +5,8 @@ __pycache__/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+figures_backup
+pickle_backup
 
 # R Markdown
 *.html
@@ -17,6 +19,11 @@ __pycache__/
 *.pickle
 *.json
 *.txt
+
+# Pytorch Tabular
+saved_models/
+lightning_logs
+.pt_tmp
 
 # Saved Figures
 *.png

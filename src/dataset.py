@@ -1,4 +1,6 @@
 import os
+import ast 
+
 import pandas as pd
 import re
 import numpy as np
@@ -23,6 +25,8 @@ def load_transcriptomics():
     df_samples = pd.read_csv("../data/microarray/samples.csv", index_col=0)
     df_genes = pd.read_csv("../data/microarray/genes.csv", index_col=0)
     df_dge = pd.read_csv("../data/microarray/dge_results_limma.csv", index_col=0)
+
+    df_dge = df_dge[~df_dge.Symbol.str.contains("ENSG")]
 
     df_counts = df_counts.transpose()
     df_counts = df_counts.loc[:, df_counts.columns.isin(df_dge.Symbol)]
@@ -110,29 +114,122 @@ def load_apoe():
     return df_genotype
 
 
+def merge_dupl_cols(df, verbose=0): 
+    # Identify columns with '_x' and '_y' suffixes
+    cols_x = [col for col in df.columns if col.endswith('_x')]
+    cols_y = [col for col in df.columns if col.endswith('_y')]
+
+    cols_x.sort()
+    cols_y.sort()
+
+    # Merge the columns
+    for col_x, col_y in zip(cols_x, cols_y):
+        if verbose > 0:
+            print(f"Merging {col_x} and {col_y}")
+        print(f"Merging {col_x} and {col_y}")
+        base_col = col_x[:-2]  # Remove the '_x' suffix
+
+        df[col_x] == df[col_y]
+        if not all(df[col_x].fillna(df[col_y]) == df[col_y].fillna(df[col_x])): 
+            if verbose > 1:
+                print(f"Warning: {col_x} and {col_y} do not match. Merging will use the first non-null value.")
+                matching = df[col_x].fillna(df[col_y]) == df[col_y].fillna(df[col_x])
+                print(df[[col_x, col_y]][~matching].dropna())
+
+        df[base_col] = df[col_x].fillna(df[col_y])
+        df.drop(columns=[col_x, col_y], inplace=True)
+
+    return df
+
+def merge_all_on_mri(df_mri, df_cog, df_counts, df_csf, df_apoe):
+    # Ensure consistent column names
+    df_counts = df_counts.rename(columns={"SubjectID": "PTID"})
+
+    # Start with df_mri
+    df_merged = df_mri.copy()
+
+    # Merge with df_cog on RID
+    if "RID" in df_cog.columns and "RID" in df_mri.columns:
+        df_merged = df_merged.merge(df_cog, on=["RID", "VISCODE"], how="left")
+    else:
+        df_merged = df_merged.merge(df_cog, on=["PTID", "VISCODE"], how="left")
+
+    # Merge with df_counts on PTID + VISCODE
+    df_merged = df_merged.merge(df_counts.drop(columns="VISCODE"), on=["PTID"], how="left")
+
+    # Merge with df_csf on PTID + VISCODE
+    df_merged = df_merged.merge(df_csf, on=["PTID", "VISCODE"], how="left")
+
+    df_all = merge_dupl_cols(df_merged)
+
+    # Merge with df_gene on PTID
+    df_all.rename(columns={"APOE4": "APOE_epsilon4_x"}, inplace=True)
+    df_all = df_all.merge(df_apoe.rename(columns={"APOE_epsilon4": "APOE_epsilon4_y"}), on=["RID"], how="left")
+
+    df_all = merge_dupl_cols(df_all)
+    
+    # If APOE_epsilon4 is 2, fill APOE_epsilon2 and APOE_epsilon3 with 0
+    mask = df_all["APOE_epsilon4"] == 2
+    cols = ["APOE_epsilon2", "APOE_epsilon3", "APOE_epsilon4"]
+    df_all.loc[mask, cols] = df_all.loc[mask, cols].fillna(0)
+
+    df_all.dropna(subset=["AGE","PTEDUCAT","PTGENDER", "DX", "Schaefer_200_7"]+df_cog.columns.tolist(), inplace=True)
+
+    # Ensure censored data in the CSF columns are handled correctly
+    df_all[["ABETA", "TAU", "PTAU"]] = df_all[["ABETA", "TAU", "PTAU"]].replace(r"[<>]", "", regex=True).apply(pd.to_numeric, errors='coerce')
+    return df_all
+
+
+def dataframe_to_matrices(data, unpack_input_names, unpack_suffix, unpack_feature_names, keep_input_names, target_names):
+
+    df = data.copy()
+    
+    df_y = df[target_names]
+
+    df_list = [df[keep_input_names]]
+
+    for (in_name, in_suff) in zip(unpack_input_names, unpack_suffix): 
+
+        print(in_name)
+
+        if in_suff == "_Cortical" : 
+            X_temp = np.array([ast.literal_eval(x) if isinstance(x, str) else np.full((202, ), np.nan)for x in df[in_name].to_list()])
+            X_temp = X_temp[:, 2:]
+        else :   
+            X_temp = np.array([ast.literal_eval(x)  if isinstance(x, str) else np.full((200, ), np.nan)  for x in df[in_name].to_list()])
+
+        print(f"Data shape : {df.shape}")
+        print(f"Number of non-NaN values : {df[in_name].notna().sum()}")
+
+        new_names = [feat+in_suff for feat in unpack_feature_names]
+        df_X_temp = pd.DataFrame(X_temp, columns=new_names)
+
+        df_list.append(df_X_temp.set_index(df_list[0].index))
+
+    df_X = pd.concat(df_list, axis=1)
+
+    df_X = df_X.loc[:,~df_X.columns.duplicated()].copy()
+
+    return df_X, df_y, df_list
+
+
 def load_pickle_data_palettes(drop_pet=True):
     # Define file paths
     file_paths = {
-        "df_X": "df_X_original.pickle",
-        "df_y": "df_y_original.pickle",
-        "df_all": "df_all_original.pickle",
+        "df_X": "df_X.pickle",
+        "df_y": "df_y.pickle",
+        "df_all": "df_all.pickle",
         "df_FinalCombination": "df_all.pickle",
-        "dict_select": "select_features.pickle",
-        "miss_mask": "filter_miss_mask.pickle"
+        "dict_select": "dict_select.pickle"
     }
 
     # Load all pickle files
     data = {key: pd.read_pickle(f"../pickle/{path}") for key, path in file_paths.items()}
-    
-    # Convert miss_mask to list
-    data["miss_mask"] = data["miss_mask"].tolist()
 
     # Extract selected features
-    feature_keys = ["RNA", "CSF", "DNA", "MRIth", "MRIvol", "PET"]
+    feature_keys = ["RNA", "CSF", "DNA", "MRIth"]
     select_features = [data["dict_select"][key] for key in feature_keys]
-    select_features_df = pd.DataFrame(select_features).T
-    select_features_df.columns = feature_keys
-    data["df_select_features"] = select_features_df
+    data["df_select_features"] = pd.DataFrame(select_features).T
     
     # Define colormaps
     full_palette = {

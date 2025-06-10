@@ -1,7 +1,23 @@
 import pandas as pd
 import numpy as np
 
+from sklearn.base import BaseEstimator, TransformerMixin
+from missforest import MissForest
+
 from pytorch_tabnet.tab_model import TabNetRegressor
+
+class MissForestWrapper(BaseEstimator, TransformerMixin):
+    def __init__(self, **kwargs):
+        self.imputer = MissForest(**kwargs)
+
+    def fit(self, X, y=None):
+        return self.imputer.fit(X)
+
+    def transform(self, X):
+        return self.imputer.transform(X)
+
+    def fit_transform(self, X, y=None):
+        return self.imputer.fit_transform(X)
 
 class TabNetModelWrapper:
     def __init__(self, n_d=8, n_a=8, max_epochs=250, patience=25):
