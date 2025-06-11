@@ -195,14 +195,14 @@ ggplot(gene_data_sampled_melted, aes(x = Expression, color = Sample)) +
 ```
 # Aggregating Probe-Level Data to Gene-Level Expression
 
-To enhance the interpretability of microarray data, we consolidate probe-level measurements into gene-level summaries. This process involves selecting the probe with the highest expression value for each gene, ensuring that the most representative signal is captured. We then assign gene symbols as row names and remove any entries lacking valid gene annotations. This step is crucial for downstream analyses, as it aligns the expression data with known gene identifiers, facilitating biological interpretation and integration with other datasets.
+To enhance the interpretability of microarray data, we consolidate probe-level measurements into gene-level summaries. This process involves selecting the median expression value for each gene, ensuring that the most sound signal is captured. We then assign gene symbols as row names and remove any entries lacking valid gene annotations. This step is crucial for downstream analyses, as it aligns the expression data with known gene identifiers, facilitating biological interpretation and integration with other datasets.
 
 ```{r Remove noise}
 # ----------------------------
 # Function to compute the maximum expression count per gene Symbol across samples
 # ----------------------------
 
-get_max_counts <- function(gene_data, gene_info) {
+get_median_counts <- function(gene_data, gene_info) {
   gene_data <- as.data.frame(gene_data)
   gene_info <- as.data.frame(gene_info)
   
@@ -221,13 +221,13 @@ get_max_counts <- function(gene_data, gene_info) {
     select(where(is.numeric)) %>% 
     colnames()
   
-  max_counts <- combined_data %>%
+  median_counts <- combined_data %>%
     pivot_longer(cols = all_of(sample_cols), names_to = "Sample", values_to = "Count") %>%
     group_by(Symbol, Sample) %>%
-    summarise(max_count = max(Count, na.rm = TRUE), .groups = 'drop') %>%
-    pivot_wider(names_from = "Sample", values_from = "max_count")
+    summarise(median_count = median(Count, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = "Sample", values_from = "median_count")
 
-  return(max_counts)
+  return(median_counts)
 }
 ```
 
@@ -241,7 +241,7 @@ To enhance the interpretability of microarray data, we consolidate probe-level m
 # Compute the maximum expression count per gene Symbol across samples
 # ----------------------------
 # Step 1: Collapse probe-level to gene-level
-gene_data_merged <- get_max_counts(gene_data, gene_info)
+gene_data_merged <- get_median_counts(gene_data, gene_info)
 
 # Step 2: Drop rows with empty or missing Symbols
 gene_data_merged <- gene_data_merged[!is.na(gene_data_merged$Symbol) & gene_data_merged$Symbol != "", ]
@@ -296,7 +296,8 @@ This section harmonizes diagnostic labels across multiple ADNI data sources. It 
 ```{r Diagnostic groups update}
 # ADNImerge-derived DX matrix
 dx_adnimerge_matrix <- adnimerge %>%
-  rename(SubjectID = PTID) %>%
+  #dplyr::rename(Visit = VISCODE) %>%
+  dplyr::rename(SubjectID = PTID) %>%
   select(SubjectID, Visit, DX, DX.bl) %>%
   filter(SubjectID %in% meta_data$SubjectID) %>%
   mutate(across(c(DX, DX.bl), as.character)) %>%
@@ -310,9 +311,9 @@ dx_adnimerge_matrix <- adnimerge %>%
 
 # ALL3-derived DX matrix
 dx_all3_matrix <- all3 %>%
-  rename(DX.bl = DX_bl) %>% 
+  dplyr::rename(DX.bl = DX_bl) %>% 
   select(SubjectID, VISCODE, DX, DX.bl) %>%
-  rename(Visit = VISCODE) %>%
+  dplyr::rename(Visit = VISCODE) %>%
   filter(SubjectID %in% meta_data$SubjectID) %>%
   mutate(across(c(DX, DX.bl), ~ case_when(
     . %in% c("LMCI", "EMCI") ~ "MCI",
@@ -401,10 +402,10 @@ gene_data_merged_copy <- gene_data_merged
 meta_data <- meta_data[match(colnames(gene_data_merged), rownames(meta_data)), ]
 gene_info <- gene_info[match(rownames(gene_data_merged), rownames(gene_info)), ]
 
-write.csv(gene_data_merged, "../data/ida/gene_counts.csv", row.names = TRUE)
+write.csv(gene_data_merged, "../data/microarray/gene_counts.csv", row.names = TRUE)
 gene_info <- data.frame(lapply(gene_info, as.character), stringsAsFactors=FALSE)
-write.csv(gene_info, "../data/ida/genes.csv", row.names = TRUE)
-write.csv(meta_data, "../data/ida/samples.csv", row.names = TRUE)
+write.csv(gene_info, "../data/microarray/genes.csv", row.names = TRUE)
+write.csv(meta_data, "../data/microarray/samples.csv", row.names = TRUE)
 ```
 
 # Filtering Lowly Expressed Genes Using a Gaussian Mixture Model
@@ -414,12 +415,18 @@ To enhance the reliability of downstream analyses, we filter out lowly expressed
 
 ```{r Remove Low expressed genes}
 
+gene_data_merged <- read.csv("../data/microarray/gene_counts.csv", header = TRUE, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE, row.names = 1)
+gene_info<- read.csv("../data/microarray/genes.csv", header = TRUE, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE,  row.names = 1)
+meta_data_with_dx_filled <- read.csv("../data/microarray/samples.csv", header = TRUE, as.is = TRUE, check.names=FALSE, stringsAsFactors = FALSE,  row.names = 1)
+
 meta_data <- meta_data_with_dx_filled
 
 meta_data$DX <- meta_data$DX_final
 rownames(meta_data) <- meta_data$SubjectID
 
 gene_data_merged_copy <- gene_data_merged
+gene_info_copy <- gene_info
+rownames(gene_info) <- gene_info$Symbol
 
 meta_data <- meta_data[match(colnames(gene_data_merged), rownames(meta_data)), ]
 gene_info <- gene_info[match(rownames(gene_data_merged), rownames(gene_info)), ]
@@ -493,9 +500,8 @@ filtered_meta_data <- as.data.frame(dge$samples)
 
 gene_data_merged <- filtered_gene_data
 
-write.csv(filtered_gene_data, "../data/ida/filtered_counts.csv", row.names = TRUE)
+write.csv(filtered_gene_data, "../data/microarray/filtered_gene_counts.csv", row.names = TRUE)
 filtered_genes <- data.frame(lapply(filtered_gene_info, as.character), stringsAsFactors=FALSE)
-write.csv(filtered_genes, "../data/ida/filtered_genes.csv", row.names = TRUE)
-write.csv(filtered_meta_data, "../data/ida/filtered_samples.csv", row.names = TRUE)
-
+write.csv(filtered_genes, "../data/microarray/filtered_genes.csv", row.names = TRUE)
+write.csv(filtered_meta_data, "../data/microarray/filtered_samples.csv", row.names = TRUE)
 ```

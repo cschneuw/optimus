@@ -21,10 +21,10 @@ def load_brain_imaging():
     return df_all
 
 def load_transcriptomics():
-    df_counts = pd.read_csv("../data/microarray/gene_counts.csv", index_col=0)
-    df_samples = pd.read_csv("../data/microarray/samples.csv", index_col=0)
-    df_genes = pd.read_csv("../data/microarray/genes.csv", index_col=0)
-    df_dge = pd.read_csv("../data/microarray/dge_results_limma.csv", index_col=0)
+    df_counts = pd.read_csv("../data/microarray/filtered_gene_counts.csv", index_col=0)
+    df_samples = pd.read_csv("../data/microarray/filtered_samples.csv", index_col=0)
+    df_genes = pd.read_csv("../data/microarray/filtered_genes.csv", index_col=0)
+    df_dge = pd.read_csv("../data/microarray/dge_results_limma_filtered.csv", index_col=0)
 
     df_dge = df_dge[~df_dge.Symbol.str.contains("ENSG")]
 

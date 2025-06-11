@@ -40,7 +40,7 @@ library(ggfortify)
 library(samr)
 
 
-filtered_gene_data <- read.csv("../data/microarray/filtered_counts.csv", 
+filtered_gene_data <- read.csv("../data/microarray/filtered_gene_counts.csv", 
                                row.names = 1, 
                                check.names = FALSE,
                                stringsAsFactors = FALSE)
@@ -59,19 +59,7 @@ df_dge_original <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI
                                 stringsAsFactors = FALSE)
 
 # CHECK WITHOUT FILTERING LOW EXPRESSION GENES 
-filtered_gene_data <- read.csv("../data/microarray/gene_counts.csv", 
-                               row.names = 1, 
-                               check.names = FALSE,
-                               stringsAsFactors = FALSE)
-filtered_gene_info <- read.csv("../data/microarray/genes.csv", 
-                                row.names = 1, 
-                               check.names = FALSE,
-                                stringsAsFactors = FALSE)
-filtered_samples <- read.csv("../data/microarray/samples.csv", 
-                              row.names = 1, 
-                             check.names = FALSE,
-                              stringsAsFactors = FALSE)
-  
+
 # Remove problematic samples
 exclude_ids <- c("128_S_2002", "003_S_2374", "116_S_4167", "033_S_4176", 
                  "033_S_4179", "098_S_4215", "941_S_4292", "073_S_4300", 
@@ -201,7 +189,7 @@ df_dge <- rbind(cn_ad, cn_mci)
 df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors = FALSE)
 
 # Save to CSV
-write.csv(df_dge, "../data/microarray/dge_results_limma.csv", row.names = FALSE)
+write.csv(df_dge, "../data/microarray/dge_results_limma_filtered.csv", row.names = FALSE)
 ```
 
 
@@ -252,7 +240,7 @@ sig_mci_ad$Symbol <- rownames(sig_mci_ad)
 df_dge <- rbind(sig_cn_ad, sig_cn_mci, sig_mci_ad)
 df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors = FALSE)
 
-write.csv(df_dge, "../data/microarray/dge_gene_selection_limma_seq.csv", row.names = TRUE)
+write.csv(df_dge, "../data/microarray/dge_gene_selection_limma_seq_filtered.csv", row.names = TRUE)
 ```
 
 ```{r Sequential limma and heatmaps}
@@ -300,5 +288,5 @@ top_genes_mci_ad <- rownames(top_mci_ad[
 
 plot_heatmap(top_genes_cn_ad, "Top DE Genes: CN vs AD", dge)
 #plot_heatmap(top_genes_cn_mci, "Top DE Genes: CN vs MCI", dge)
-#plot_heatmap(top_genes_mci_ad, "Top DE Genes: MCI vs AD", dge)
+plot_heatmap(top_genes_mci_ad, "Top DE Genes: MCI vs AD", dge)
 ```

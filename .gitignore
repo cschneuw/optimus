@@ -24,6 +24,7 @@ pickle_backup
 saved_models/
 lightning_logs
 .pt_tmp
+.lr_find*
 
 # Saved Figures
 *.png

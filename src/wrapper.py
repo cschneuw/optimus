@@ -4,6 +4,8 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from missforest import MissForest
 
+from pytorch_tabular import TabularModel
+
 from pytorch_tabnet.tab_model import TabNetRegressor
 
 class MissForestWrapper(BaseEstimator, TransformerMixin):
@@ -73,3 +75,32 @@ class TabNetModelWrapper:
             X_test = X_test.values.copy().astype(np.float32)
 
         return self.model.predict(X_test)
+    
+
+# Utility to wrap TabularModel into sklearn-like fit/predict
+class TabularModelWrapper:
+    def __init__(self, model_config, data_config, trainer_config, optimizer_config):
+        self.model_config = model_config
+        self.data_config = data_config
+        self.trainer_config = trainer_config
+        self.optimizer_config = optimizer_config
+        self.model = None
+
+    def fit(self, X, y):
+        df = X.copy().reset_index(drop=True)
+        for c in y.columns:
+            df[c] = y[c].reset_index(drop=True)
+
+        self.model = TabularModel(
+            data_config=self.data_config,
+            model_config=self.model_config,
+            optimizer_config=self.optimizer_config,
+            trainer_config=self.trainer_config
+        )
+        self.model.fit(train=df, validation=df)  # ideally separate validation
+        return self
+
+    def predict(self, X):
+        assert self.model is not None, "You must call .fit(...) before .predict(...)"
+        preds = self.model.predict(X.reset_index(drop=True))
+        return preds
