@@ -16,7 +16,7 @@ def load_cognition():
     return df_uwnpsychsum, targets
 
 def load_brain_imaging():
-    df_all = pd.read_csv("../../../dataset/ADNI/ALL_3.csv").replace({"sc":"bl","Female":0, "Male":1})
+    df_all = pd.read_csv("../data/ida/ALL_3.csv").replace({"sc":"bl","Female":0, "Male":1})
 
     return df_all
 
@@ -256,8 +256,8 @@ def csv_to_list(filename):
 
 
 def read_featurenames(remove_medial_wall=True):
-    r_featurename="../../../dataset/ADNI/rh_mapping_names.csv"
-    l_featurename="../../../dataset/ADNI/lh_mapping_names.csv"
+    r_featurename="../data/ida/rh_mapping_names.csv"
+    l_featurename="../data/ida/lh_mapping_names.csv"
     
     r_features = csv_to_list(r_featurename)
     l_features = csv_to_list(l_featurename)
