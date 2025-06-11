@@ -64,54 +64,78 @@ def train_xgb(X_train, X_test, y_train, y_test):
     return booster, results
 
 class XGBoostRegressor(BaseEstimator, RegressorMixin):
-    def __init__(self, **xgb_params):
-        """
-        Initialize the XGBoostRegressor with XGBoost parameters.
+    def __init__(self,
+                 num_boost_round=100,
+                 max_depth=3,
+                 lambda_=1.0,
+                 learning_rate=0.1,
+                 subsample=1.0,
+                 colsample_bytree=1.0,
+                 alpha=0.0,
+                 tree_method="hist",
+                 min_child_weight=1,
+                 custom_obj=True,
+                 custom_metric=True):
         
-        Parameters:
-        - **xgb_params: Keyword arguments for XGBoost parameters (e.g., 'objective', 'max_depth', etc.)
-        """
-        self.xgb_params = xgb_params
+        # Expose all as attributes
+        self.num_boost_round = num_boost_round
+        self.max_depth = max_depth
+        self.lambda_ = lambda_
+        self.learning_rate = learning_rate
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
+        self.alpha = alpha
+        self.tree_method = tree_method
+        self.min_child_weight = min_child_weight
+        self.custom_obj = custom_obj
+        self.custom_metric = custom_metric
+        
         self.model = None
 
-    def fit(self, X, y):
-        """
-        Fit the XGBoost model on the given training data.
-        
-        Parameters:
-        - X: Training features, expected as a DataFrame or 2D array.
-        - y: Target values, expected as a 1D array or Series.
-        """
-        if isinstance(X, pd.DataFrame):
-            X = X.astype('float32')
-        if isinstance(y, pd.DataFrame):
-            y = y.astype('float32')
+    def get_params(self, deep=True):
+        # Return all parameters
+        return {
+            'num_boost_round': self.num_boost_round,
+            'max_depth': self.max_depth,
+            'lambda_': self.lambda_,
+            'learning_rate': self.learning_rate,
+            'subsample': self.subsample,
+            'colsample_bytree': self.colsample_bytree,
+            'alpha': self.alpha,
+            'tree_method': self.tree_method,
+            'custom_obj': self.custom_obj,
+            'custom_metric': self.custom_metric
+        }
 
-        # Convert data to DMatrix format, which is required for XGBoost
+    def set_params(self, **params):
+        for key, val in params.items():
+            setattr(self, key, val)
+        return self
+
+    def fit(self, X, y):
         dtrain = xgb.DMatrix(data=X, label=y, enable_categorical=True)
-        
-        # Train the model
-        self.model = xgb.train(params=self.xgb_params, dtrain=dtrain)
-        
+        params = {
+            'max_depth': self.max_depth,
+            'lambda': self.lambda_,
+            'learning_rate': self.learning_rate,
+            'subsample': self.subsample,
+            'colsample_bytree': self.colsample_bytree,
+            'alpha': self.alpha,
+            'tree_method': self.tree_method,
+            'num_target': y.shape[1]
+        }
+        obj_fn = squared_log if self.custom_obj else 'reg:squarederror'
+        metric_fn = rmse if self.custom_metric else None
+
+        self.model = xgb.train(
+            params=params,
+            dtrain=dtrain,
+            num_boost_round=self.num_boost_round,
+            obj=obj_fn,
+            custom_metric=metric_fn
+        )
         return self
 
     def predict(self, X):
-        """
-        Predict with the fitted XGBoost model.
-        
-        Parameters:
-        - X: Test features, expected as a DataFrame or 2D array.
-        
-        Returns:
-        - y_pred: Predicted values.
-        """
-        if isinstance(X, pd.DataFrame):
-            X = X.astype('float32')
-        # Convert test data to DMatrix format
         dtest = xgb.DMatrix(data=X, enable_categorical=True)
-        
-        # Predict using the trained model
-        y_pred = self.model.predict(dtest)
-
-        return y_pred
-        
+        return self.model.predict(dtest)

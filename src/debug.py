@@ -93,3 +93,43 @@ def check_duplicated_merged_df(df_merged):
         if differing_cols.any():
             print(f"\nDifferences in group {name}:")
             print(group.loc[:, differing_cols])
+
+
+def clean_dict_list(dict_list, remove_if_none = True, remove_key_val = None, verbose = True):
+    """
+    Cleans a list of dictionaries.
+
+    Parameters:
+    - dict_list: List of dictionaries to clean.
+    - remove_if_none: If True, removes any dict containing None values and prints the other values.
+    - remove_key_val: If set (e.g., {"status": "invalid"}), removes dicts where dict[key] == value.
+    - verbose: If True, prints retained values when removing dicts.
+
+    Returns:
+    - Cleaned list of dictionaries.
+    """
+    cleaned = []
+    for d in dict_list:
+        remove = False
+
+        # Check for key-value pair match
+        if remove_key_val:
+            for key, val in remove_key_val.items():
+                if d.get(key) == val:
+                    remove = True
+                    if verbose:
+                        print(f"Removed due to key-value match: {key}={val}")
+                    break
+        
+        # Check for None values
+        if not remove and remove_if_none:
+            if any(v is None for v in d.values()):
+                remove = True
+                if verbose:
+                    non_none = {k: v for k, v in d.items() if v is not None}
+                    print(f"Removed due to None value. Other values: {non_none}")
+
+        if not remove:
+            cleaned.append(d)
+    
+    return cleaned
