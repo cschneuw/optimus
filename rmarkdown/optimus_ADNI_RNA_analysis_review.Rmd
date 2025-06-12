@@ -164,26 +164,26 @@ cn_ad <- results_ADvsCN[
   results_ADvsCN$adj.P.Val < dge_threshold & abs(results_ADvsCN$logFC) > logfc_cutoff, 
 ]
 
-mci_ad <- results_MCIvsCN[
+cn_mci <- results_MCIvsCN[
   results_MCIvsCN$adj.P.Val < dge_threshold & abs(results_MCIvsCN$logFC) > logfc_cutoff, 
 ]
 
-cn_mci <- results_ADvsMCI[
+mci_ad<- results_ADvsMCI[
   results_ADvsMCI$adj.P.Val < dge_threshold & abs(results_ADvsMCI$logFC) > logfc_cutoff, 
 ]
 
 # Add contrast labels
 cn_ad$Test <- "CN_AD"
-# mci_ad$Test <- "MCI_AD"
+mci_ad$Test <- "MCI_AD"
 cn_mci$Test <- "CN_MCI"
 
 # Add gene symbol column (assuming rownames are gene symbols)
 cn_ad$Symbol <- rownames(cn_ad)
-# mci_ad$Symbol <- rownames(mci_ad)
+mci_ad$Symbol <- rownames(mci_ad)
 cn_mci$Symbol <- rownames(cn_mci)
 
 # Combine all results
-df_dge <- rbind(cn_ad, cn_mci)
+df_dge <- rbind(cn_ad, cn_mci, mci_ad)
 
 # Optional: convert all columns to character (depends on your need)
 df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors = FALSE)
