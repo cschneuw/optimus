@@ -215,7 +215,12 @@ def train_imputer_model(
 
     y_pred_adjusted = model.predict(X_test_adjusted)
 
-    y_pred_adjusted = pd.DataFrame(y_pred_adjusted, columns=y_test_adjusted.columns)
+    if isinstance(y_pred_adjusted, pd.DataFrame) and all(
+    isinstance(col, str) and col.endswith("_prediction") for col in y_pred_adjusted.columns
+    ):
+        y_pred_adjusted.columns = [col.replace("_prediction", "") for col in y_pred_adjusted.columns]
+    else:
+        y_pred_adjusted = pd.DataFrame(y_pred_adjusted, columns=y_test_adjusted.columns)
 
     # Metrics computed in original space
     y_pred = demographic_adjustment_y.inverse_transform(y_pred_adjusted, c_test)
