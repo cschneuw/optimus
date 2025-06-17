@@ -22,7 +22,7 @@ class MissForestWrapper(BaseEstimator, TransformerMixin):
         return self.imputer.fit_transform(X)
 
 class TabNetModelWrapper:
-    def __init__(self, n_d=8, n_a=8, max_epochs=250, patience=25):
+    def __init__(self, n_d=8, n_a=8, max_epochs=250, patience=25, **kwargs):
         """
         Wrapper class for TabNetRegressor.
 
@@ -32,7 +32,7 @@ class TabNetModelWrapper:
             max_epochs (int): Maximum number of training epochs.
             patience (int): Number of epochs to wait for improvement before stopping.
         """
-        self.model = TabNetRegressor(n_d=n_d, n_a=n_a)
+        self.model = TabNetRegressor(n_d=n_d, n_a=n_a, **kwargs)
         self.max_epochs = max_epochs
         self.patience = patience
 

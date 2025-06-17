@@ -90,7 +90,8 @@ def train_imputer_model(
     model, name_model, 
     imputer_model=None, name_imputer=None, 
     separate_imputers=True,
-    ordinal_features = ['APOE_epsilon2', 'APOE_epsilon3', 'APOE_epsilon4']
+    ordinal_features = ['APOE_epsilon2', 'APOE_epsilon3', 'APOE_epsilon4'],
+    save_model=False
 ): 
     # Define which columns are ordinal and which are continuous
     continuous_features = [col for col in df_X_train.columns if col not in ordinal_features]
@@ -275,6 +276,9 @@ def train_imputer_model(
         "results_adj": results_adj, 
         "results_org": results_org
         }
+    
+    if save_model == True:
+        dict_results["model_trained"] = model
 
     return dict_results
 

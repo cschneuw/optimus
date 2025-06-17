@@ -26,6 +26,7 @@ shapiq = "^1.2.3"
 hyperopt = "^0.2.7"
 openpyxl = "^3.1.5"
 pytorch-tabular = "^1.1.1"
+beexai = "^0.0.6"
 
 
 [build-system]
