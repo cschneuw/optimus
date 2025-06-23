@@ -19,6 +19,7 @@ pickle_backup
 *.pickle
 *.json
 *.txt
+*.gz
 
 # Pytorch Tabular
 saved_models/
