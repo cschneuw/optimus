@@ -53,11 +53,6 @@ filtered_samples <- read.csv("../data/microarray/filtered_samples.csv",
                              check.names = FALSE,
                               stringsAsFactors = FALSE)
 
-df_dge_original <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", 
-                                row.names = 1, 
-                                check.names = FALSE,
-                                stringsAsFactors = FALSE)
-
 # CHECK WITHOUT FILTERING LOW EXPRESSION GENES 
 
 # Remove problematic samples
@@ -101,7 +96,12 @@ results_ADvsCN <- topTable(fit2, coef = "ADvsCN", adjust = "fdr", number = Inf)
 results_MCIvsCN <- topTable(fit2, coef = "MCIvsCN", adjust = "fdr", number = Inf)
 results_ADvsMCI <- topTable(fit2, coef = "ADvsMCI", adjust = "fdr", number = Inf)
 
-plot_volcano <- function(top_table, contrast_name = "", dge_threshold = 0.05, logfc_cutoff = 1) {
+plot_volcano <- function(top_table, 
+                         contrast_name = "", 
+                         dge_threshold = 0.05, 
+                         logfc_cutoff = 1,
+                         x_limits = c(-3, 3)) {
+  
   # Add color group column based on thresholds
   top_table$color_group <- ifelse(
     top_table$adj.P.Val < dge_threshold & top_table$logFC > logfc_cutoff, "Upregulated",
@@ -115,30 +115,33 @@ plot_volcano <- function(top_table, contrast_name = "", dge_threshold = 0.05, lo
 
   # Create a filtered dataframe for labeling
   highlight_data <- top_table[rownames(top_table) %in% highlight_genes, ]
-
+  
   # Plot
   ggplot(top_table, aes(x = logFC, y = -log10(adj.P.Val))) +
-    geom_point(aes(color = color_group), alpha = 0.8, size = 3) +
-    geom_hline(yintercept = -log10(dge_threshold), linetype = "dashed", color = "azure4", linewidth = 1.2) +
-    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
+    geom_point(aes(color = color_group), alpha = 0.5, size = 2.5) +  # Transparent points
+    geom_hline(yintercept = -log10(dge_threshold), linetype = "dashed", color = "darkgrey", linewidth = 1) +
+    geom_vline(xintercept = c(-logfc_cutoff, logfc_cutoff), linetype = "dotted", color = "darkgrey") +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "lightgrey")) +
+    xlim(x_limits) +  # Set x-axis boundaries
     labs(
       x = "Log2 Fold Change", 
-      y = "-Log10 P-Value",
+      y = "-Log10 Adjusted P-Value",
       title = paste("Volcano Plot:", contrast_name)
     ) +
     theme_minimal(base_size = 14) +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 16, face = "bold"),
-      axis.text = element_text(size = 14),
-      axis.title = element_text(size = 16)
+      panel.grid = element_blank(),     # Remove background grid
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14)
     ) +
     geom_text_repel(
       data = highlight_data,
       aes(label = rownames(highlight_data)),
-      size = 4.5,
+      size = 4,
       box.padding = 0.4,
-      point.padding = 0.3,
+      point.padding = 0.2,
       segment.color = 'grey50',
       max.overlaps = 10
     )
@@ -146,11 +149,11 @@ plot_volcano <- function(top_table, contrast_name = "", dge_threshold = 0.05, lo
 
 
 # Example:
-plot_volcano(results_ADvsCN, "AD vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05)
+plot_volcano(results_ADvsCN, "AD vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
 # Example:
-plot_volcano(results_ADvsMCI, "AD vs MCI", logfc_cutoff = 0.0, dge_threshold = 0.05)
+plot_volcano(results_ADvsMCI, "AD vs MCI", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
 # Example:
-plot_volcano(results_MCIvsCN, "MCI vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05)
+plot_volcano(results_MCIvsCN, "MCI vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
 ```
 
 ```{r Extract differentially expressed genes}
