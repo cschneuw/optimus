@@ -1,17 +1,17 @@
 ---
-title: "Differential Gene Expression Analysis - ADNI RNA"
+title: "ADNI_RNA_analysis"
 author: "Christelle Schneuwly Diaz"
 date: "2023"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # Differential expression analysis 
 
-In this report, we perform classical differential gene expression analysis on ADNI microarray data. After preprocessing and filtering, we compare diagnostic groups (e.g., CN vs. AD, CN vs. MCI) using edgeR. Visualizations include volcano plots to highlight significantly deregulated genes.
+The analysis focuses on identifying differentially expressed genes (DEGs) across various diagnostic groups: cognitively normal (CN), mild cognitive impairment (MCI), and Alzheimer's disease (AD). The workflow encompasses data preprocessing, normalization, statistical modeling, and visualization, primarily utilizing the limma package, which is well-suited for analyzing microarray data.
 
 ```{r Import packages and data}
 library(ADNIMERGE)
@@ -39,7 +39,8 @@ library(ggfortify)
 
 library(samr)
 
-filtered_gene_data <- read.csv("../data/microarray/filtered_counts.csv", 
+
+filtered_gene_data <- read.csv("../data/microarray/filtered_gene_counts.csv", 
                                row.names = 1, 
                                check.names = FALSE,
                                stringsAsFactors = FALSE)
@@ -51,11 +52,9 @@ filtered_samples <- read.csv("../data/microarray/filtered_samples.csv",
                               row.names = 1, 
                              check.names = FALSE,
                               stringsAsFactors = FALSE)
-df_dge_original <- read.csv("/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/dge_gene_selection.csv", 
-                                row.names = 1, 
-                                check.names = FALSE,
-                                stringsAsFactors = FALSE)
-  
+
+# CHECK WITHOUT FILTERING LOW EXPRESSION GENES 
+
 # Remove problematic samples
 exclude_ids <- c("128_S_2002", "003_S_2374", "116_S_4167", "033_S_4176", 
                  "033_S_4179", "098_S_4215", "941_S_4292", "073_S_4300", 
@@ -67,78 +66,140 @@ gene_info <- filtered_gene_info
 rownames(gene_info) <- gene_info$Symbol
 ```
 
-```{r FromEdgeR}
-dge <- DGEList(counts = gene_counts, samples = sample_meta, genes = gene_info, group = factor(sample_meta$DX))
-design <- model.matrix(~ 0 + factor(sample_meta$DX))
+The limma package is employed for differential expression analysis, which is appropriate for microarray data. Diagnostic groups are encoded as factors, and a design matrix is constructed without an intercept in order to model each group explicitly. Pairwise contrasts are then defined to compare AD vs. CN, MCI vs. CN, and AD vs. MCI. The linear model is fitted using lmFit, contrasts are applied with contrasts.fit, and empirical Bayes moderation is performed using eBayes. Finally, the topTable function is used to extract the results for each contrast, with p-values adjusted using the false discovery rate (FDR) method.
 
-plot_volcano <- function(dge_result, threshold = 0.6, title = "Volcano Plot", highlight_genes = NULL) {
-  dge_result$table$color_group <- ifelse(
-    -log10(dge_result$table$PValue) > threshold & dge_result$table$logFC > 0, "Upregulated",
-    ifelse(-log10(dge_result$table$PValue) > threshold & dge_result$table$logFC < 0, "Downregulated", "Not significant")
+```{r limma}
+# Step 1: Prepare expression matrix and metadata
+expr_matrix <- gene_counts
+meta <- sample_meta
+
+meta$group <- factor(make.names(meta$DX))  # CN, MCI, AD
+
+design <- model.matrix(~ 0 + group, data = meta)
+colnames(design) <- levels(meta$group)  # CN, MCI, AD
+
+fit <- lmFit(expr_matrix, design)
+
+# Define pairwise contrasts
+contrast_matrix <- makeContrasts(
+  ADvsCN = AD - CN,
+  MCIvsCN = MCI - CN,
+  ADvsMCI = AD - MCI,
+  levels = design
+)
+
+fit2 <- contrasts.fit(fit, contrast_matrix)
+fit2 <- eBayes(fit2)
+
+# You can do this for each contrast:
+results_ADvsCN <- topTable(fit2, coef = "ADvsCN", adjust = "fdr", number = Inf)
+results_MCIvsCN <- topTable(fit2, coef = "MCIvsCN", adjust = "fdr", number = Inf)
+results_ADvsMCI <- topTable(fit2, coef = "ADvsMCI", adjust = "fdr", number = Inf)
+
+plot_volcano <- function(top_table, 
+                         contrast_name = "", 
+                         dge_threshold = 0.05, 
+                         logfc_cutoff = 1,
+                         x_limits = c(-3, 3)) {
+  
+  # Add color group column based on thresholds
+  top_table$color_group <- ifelse(
+    top_table$adj.P.Val < dge_threshold & top_table$logFC > logfc_cutoff, "Upregulated",
+    ifelse(top_table$adj.P.Val < dge_threshold & top_table$logFC < -logfc_cutoff, "Downregulated", "Not significant")
   )
   
-  highlight_df <- dge_result$table[rownames(dge_result$table) %in% highlight_genes & -log10(dge_result$table$PValue) > threshold, ]
+  # Identify genes to label
+  highlight_genes <- rownames(top_table)[
+    top_table$adj.P.Val < dge_threshold & abs(top_table$logFC) > logfc_cutoff
+  ]
 
-  ggplot(dge_result$table, aes(x = logFC, y = -log10(PValue))) +
-    geom_point(aes(color = color_group), alpha = 0.8, size = 2.5) +
-    geom_hline(yintercept = threshold, linetype = "dashed", color = "grey40") +
-    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "grey")) +
-    labs(x = "Log2 Fold Change", y = "-Log10 P-Value", title = title) +
+  # Create a filtered dataframe for labeling
+  highlight_data <- top_table[rownames(top_table) %in% highlight_genes, ]
+  
+  # Plot
+  ggplot(top_table, aes(x = logFC, y = -log10(adj.P.Val))) +
+    geom_point(aes(color = color_group), alpha = 0.5, size = 2.5) +  # Transparent points
+    geom_hline(yintercept = -log10(dge_threshold), linetype = "dashed", color = "darkgrey", linewidth = 1) +
+    geom_vline(xintercept = c(-logfc_cutoff, logfc_cutoff), linetype = "dotted", color = "darkgrey") +
+    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not significant" = "lightgrey")) +
+    xlim(x_limits) +  # Set x-axis boundaries
+    labs(
+      x = "Log2 Fold Change", 
+      y = "-Log10 Adjusted P-Value",
+      title = paste("Volcano Plot:", contrast_name)
+    ) +
     theme_minimal(base_size = 14) +
-    theme(legend.position = "none") +
+    theme(
+      legend.position = "none",
+      panel.grid = element_blank(),     # Remove background grid
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14)
+    ) +
     geom_text_repel(
-      data = highlight_df,
-      aes(label = rownames(highlight_df)),
-      size = 3.5,
+      data = highlight_data,
+      aes(label = rownames(highlight_data)),
+      size = 4,
       box.padding = 0.4,
-      point.padding = 0.3,
+      point.padding = 0.2,
       segment.color = 'grey50',
-      max.overlaps = 15
+      max.overlaps = 10
     )
 }
 
 
-disp_cn_ad <- estimateDisp(dge, design)
-et_cn_ad <- exactTest(disp_cn_ad, pair = c("CN", "AD"))
-top_cn_ad <- topTags(et_cn_ad, n = Inf, sort.by = "none")
-
-highlight_genes_cn_ad <- df_dge_original$Symbol[df_dge_original$Test == "CN_AD"]
-
-plot_volcano(top_cn_ad, threshold = 0.6, title = "CN vs AD", highlight_genes = highlight_genes_cn_ad)
-
-disp_cn_mci <- estimateDisp(dge, design)
-et_cn_mci <- exactTest(disp_cn_mci, pair = c("CN", "MCI"))
-top_cn_mci <- topTags(et_cn_mci, n = Inf, sort.by = "none")
-
-highlight_genes_cn_mci <- df_dge_original$Symbol[df_dge_original$Test == "CN_MCI"]
-
-plot_volcano(top_cn_mci, threshold = 0.6, title = "CN vs MCI", highlight_genes = highlight_genes_cn_mci)
-
-
-disp_mci_ad <- estimateDisp(dge, design)
-et_mci_ad <- exactTest(disp_mci_ad, pair = c("MCI", "AD"))
-top_mci_ad <- topTags(et_mci_ad, n = Inf, sort.by = "none")
-
-highlight_genes_mci_ad <- df_dge_original$Symbol[df_dge_original$Test == "CN_MCI"]
-
-plot_volcano(top_mci_ad, threshold = 0.6, title = "CN vs MCI", highlight_genes = highlight_genes_mci_ad)
+# Example:
+plot_volcano(results_ADvsCN, "AD vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
+# Example:
+plot_volcano(results_ADvsMCI, "AD vs MCI", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
+# Example:
+plot_volcano(results_MCIvsCN, "MCI vs CN", logfc_cutoff = 0.0, dge_threshold = 0.05, x_limits = c(-0.5, 0.5))
 ```
 
-```{r Extracting top genes}
-# Threshold
-dge_threshold <- 0.6
+```{r Extract differentially expressed genes}
+# Replace these with your actual results objects
+# Filter for adjusted P-value < 0.05
+# Filter significant genes based on adj.P.Val and logFC cutoff
+logfc_cutoff <- 0.0
+dge_threshold <- 0.05
 
-# CN vs AD
-sig_cn_ad <- subset(top_cn_ad$table, -log10(PValue) > dge_threshold)
-top_genes_cn_ad <- rownames(sig_cn_ad)
+cn_ad <- results_ADvsCN[
+  results_ADvsCN$adj.P.Val < dge_threshold & abs(results_ADvsCN$logFC) > logfc_cutoff, 
+]
 
-# CN vs MCI
-sig_cn_mci <- subset(top_cn_mci$table, -log10(PValue) > dge_threshold)
-top_genes_cn_mci <- rownames(sig_cn_mci)
+cn_mci <- results_MCIvsCN[
+  results_MCIvsCN$adj.P.Val < dge_threshold & abs(results_MCIvsCN$logFC) > logfc_cutoff, 
+]
 
-# MCI vs AD
-sig_mci_ad <- subset(top_mci_ad$table, -log10(PValue) > dge_threshold)
-top_genes_mci_ad <- rownames(sig_mci_ad)
+mci_ad<- results_ADvsMCI[
+  results_ADvsMCI$adj.P.Val < dge_threshold & abs(results_ADvsMCI$logFC) > logfc_cutoff, 
+]
+
+# Add contrast labels
+cn_ad$Test <- "CN_AD"
+mci_ad$Test <- "MCI_AD"
+# cn_mci$Test <- "CN_MCI"
+
+# Add gene symbol column (assuming rownames are gene symbols)
+cn_ad$Symbol <- rownames(cn_ad)
+mci_ad$Symbol <- rownames(mci_ad)
+# cn_mci$Symbol <- rownames(cn_mci)
+
+# Combine all results
+df_dge <- rbind(cn_ad, cn_mci, mci_ad)
+
+# Optional: convert all columns to character (depends on your need)
+df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors = FALSE)
+
+# Save to CSV
+write.csv(df_dge, "../data/microarray/dge_results_limma_filtered.csv", row.names = FALSE)
+```
+
+```{r Sequential limma and heatmaps}
+
+# Create DGEList from counts and sample metadata
+dge <- DGEList(counts = gene_counts)
+dge$samples$group <- sample_meta$DX  # ensure group info is available
 
 plot_heatmap <- function(gene_list, title, dge_obj) {
   # Get expression matrix (logCPM)
@@ -167,90 +228,21 @@ plot_heatmap <- function(gene_list, title, dge_obj) {
   )
 }
 
-plot_heatmap(top_genes_cn_ad, title = "Top DE Genes: CN vs AD", dge_obj = dge)
-plot_heatmap(top_genes_cn_mci, title = "Top DE Genes: CN vs MCI", dge_obj = dge)
-plot_heatmap(top_genes_mci_ad, title = "Top DE Genes: MCI vs AD", dge_obj = dge)
+top_cn_ad <- cn_ad
+top_cn_mci <- cn_mci
+top_mci_ad <- mci_ad
 
-sig_cn_ad$Test <- "CN_AD"
-sig_mci_ad$Test <- "MCI_AD"
-sig_cn_mci$Test <- "CN_MCI"
+top_genes_cn_ad <- rownames(top_cn_ad[
+  top_cn_ad$adj.P.Val < dge_threshold & abs(top_cn_ad$logFC) > logfc_cutoff
+  , ])
 
-sig_cn_ad$Symbol <- rownames(sig_cn_ad)
-sig_mci_ad$Symbol <- rownames(sig_mci_ad)
-sig_cn_mci$Symbol <- rownames(sig_cn_mci)
+top_genes_cn_mci <- rownames(top_cn_mci[
+  top_cn_mci$adj.P.Val < dge_threshold & abs(top_cn_mci$logFC) > logfc_cutoff, ])
 
-df_dge <- rbind(sig_cn_ad, sig_mci_ad, sig_cn_mci)
-df_dge <- data.frame(lapply(df_dge, as.character), stringsAsFactors=FALSE)
+top_genes_mci_ad <- rownames(top_mci_ad[
+  top_mci_ad$adj.P.Val < dge_threshold & abs(top_mci_ad$logFC) > logfc_cutoff, ])
 
-write.csv(df_dge, "../data/microarray/dge_gene_selection_edger.csv", row.names = TRUE)
-```
-
-```{r SAMR}
-
-sam <- SAM(x=filtered_gene_data, y=as.factor(filtered_meta_data$DX), geneid = rownames(filtered_gene_info), genenames=filtered_gene_info$Symbol, resp.type="Multiclass", fdr.output=0.05)
-
-# plot results
-print(sam)
-plot(sam)
-
-if (median_filtering) {
-write.csv(sam[["siggenes.table"]][["genes.up"]], "/home/chris/Documents/CHUV/PhD_project/dataset/ADNI/gene_expression_microarray/samr_gene_up.csv", row.names = TRUE)
-}
-
-# Function to run SAM analysis for a pairwise comparison
-run_sam_pairwise <- function(gene_data, gene_info, meta_data, group1, group2) {
-  # Subset the data for the two groups
-  subset_indices <- which(meta_data$DX %in% c(group1, group2))
-  subset_gene_data <- gene_data[, subset_indices]
-  subset_meta_data <- meta_data[subset_indices, ]
-  
-  # Convert the response to numeric (1 for group1, 2 for group2)
-  y <- as.numeric(as.factor(subset_meta_data$DX))
-  
-  # Prepare the SAM input data
-  sam_data <- list(
-    x = as.matrix(subset_gene_data),
-    y = y,
-    geneid = rownames(subset_gene_data),
-    genenames = gene_info$Symbol,
-    logged2 = TRUE  # Assuming your data is log-transformed
-  )
-  
-  # Run SAM analysis
-  samfit <- samr(
-    sam_data,
-    resp.type = "Two class unpaired",
-    nperms = 100  # Number of permutations, adjust as needed
-  )
-  
-  # Compute significant genes
-  delta_table <- samr.compute.delta.table(samfit)
-  significant_genes <- samr.compute.siggenes.table(samfit, del = 0.4, data = sam_data, delta.table = delta_table)
-  
-  # Plot the results
-  samr.plot(samfit, 0.4)
-  
-  return(significant_genes)
-}
-
-#Run pairwise comparisons
-# CN vs MCI
-significant_genes_cn_mci <- run_sam_pairwise(filtered_gene_data, filtered_gene_info, filtered_meta_data, "CN", "MCI")
-
-# CN vs AD
-significant_genes_cn_ad <- run_sam_pairwise(filtered_gene_data, filtered_gene_info, filtered_meta_data, "CN", "AD")
-
-# MCI vs AD
-significant_genes_mci_ad <- run_sam_pairwise(filtered_gene_data, filtered_gene_info, filtered_meta_data, "MCI", "AD")
-
-# You can access the significant genes for each comparison
-sig_genes_cn_mci_up <- significant_genes_cn_mci$genes.up
-sig_genes_cn_mci_down <- significant_genes_cn_mci$genes.lo
-
-sig_genes_cn_ad_up <- significant_genes_cn_ad$genes.up
-sig_genes_cn_ad_down <- significant_genes_cn_ad$genes.lo
-
-sig_genes_mci_ad_up <- significant_genes_mci_ad$genes.up
-sig_genes_mci_ad_down <- significant_genes_mci_ad$genes.lo
-
+plot_heatmap(top_genes_cn_ad, "Top DE Genes: CN vs AD", dge)
+#plot_heatmap(top_genes_cn_mci, "Top DE Genes: CN vs MCI", dge)
+plot_heatmap(top_genes_mci_ad, "Top DE Genes: MCI vs AD", dge)
 ```

@@ -55,7 +55,7 @@ def load_CSF():
     df_upenn_all.sort_values(by=["RID", "VISCODE"], inplace=True)
     df_upenn_all.drop_duplicates(subset=["RID", "VISCODE"], keep="last", inplace=True)
 
-        # Define which biomarker maps to which column
+    # Define which biomarker maps to which column
     censor_column_map = {
         "Abeta42": "ABETA",
         "Tau": "TAU",

@@ -68,18 +68,20 @@ def compute_all_metrics(y_test, y_pred):
     # Metrics computed in adjusted space
     mse_score = mean_squared_error(y_test, y_pred, multioutput="raw_values")
     mae_score = mean_absolute_error(y_test, y_pred, multioutput="raw_values")
-    r2 = r2_score(y_test, y_pred, multioutput="raw_values")
+    r2 = r2_score(y_test,y_pred, multioutput="raw_values")
     explained_variance = explained_variance_score(y_test, y_pred, multioutput="raw_values")
 
     try: 
-        corr = correlation(y_pred, y_test)
+        corr_p = correlation(y_pred, y_test)
     except: 
         print("Problem when computing correlation!")
-        if type(y_test) == type(y_pred): 
+        if type(y_test) != type(y_pred): 
             print("Type of inputs is different.")
-            corr = None
+            corr_p = None
+        else : 
+            corr_p = pearsonr(y_test, y_pred)
 
-    return mse_score, mae_score, r2, explained_variance, corr
+    return mse_score, mae_score, r2, explained_variance, corr_p
 
 
 def train_imputer_model(

@@ -2,112 +2,120 @@
 
 ## Authors
 Christelle Schneuwly Diaz, Duy Thanh Vũ, Julien Bodelet, Duy-Cat Can, Guillaume Blanc,  
-Haiting Jiang, Lin Yao, Holger Auner, Gilles Allali, Giuseppe Pantaleo, ADNI, Oliver Y. Chén  
+Haiteng Jiang, Lin Yao, Giuseppe Pantaleo and Oliver Y. Chén for ADNI
 
 ---
 
 ## Overview
-**OPTIMUS** is a predictive, modular, and explainable machine-learning framework designed to model **multivariate cognitive and behavioral outcomes** in Alzheimer’s Disease (AD) using **multi-modal data**, while explicitly addressing **missing values**. OPTIMUS integrates:
+**OPTIMUS** is a predictive and explainable machine-learning analysis for modeling multivariate cognitive and behavioral outcomes in Alzheimer’s Disease (AD) using multimodal data. It addresses challenges of missing data and aims to provide biological interpretability of predictive models.
 
-- **Missing data handling** strategies to recover missing values while preserving biological relevance.
-- **Attention-based predictive modeling** tailored for structured multi-modal data.
-- **Explainable AI (XAI)** to uncover interpretable relationships between biomarkers and cognitive outcomes.
+The analysis covers:
+- Missing data handling and imputation benchmarking
+- Predictive modeling with classical and deep learning approaches
+- Explainability using perturbation-based post-hoc model agnostic methods
+- Brain mapping to contextualize feature attributions anatomically
 
 ---
 
 ## Objective
-Alzheimer’s Disease is driven by a complex interplay of neural, genetic, and proteomic factors, impacting multiple cognitive domains. Traditional approaches often predict **univariate outcomes**, such as disease progression or severity scores. OPTIMUS goes beyond by:
-
-- **Integrating multi-modal data**, including imaging, genetic, and proteomic features.
-- **Predicting multivariate outcomes**, capturing multiple cognitive and behavioral functions simultaneously.
-- **Handling missing data** with dedicated strategies to maximize usable data.
+Alzheimer’s Disease involves complex neural, genetic, and proteomic factors affecting multiple cognitive domains. OPTIMUS aims to:
+- Integrate multimodal data (neuroimaging, transcriptomics, genotyping, CSF biomarkers).
+- Predict multivariate outcomes across memory, executive, language, and visuospatial domains.
+- Handle missingness without losing biological signal.
+- Identify key biomarkers and map them back to brain anatomy for interpretation.
 
 ---
 
 ## Methods
 
-### 1. Multi-modal Data
-OPTIMUS is trained on data from **1,205 individuals**, spanning:
-- **346** cognitively normal (CN) participants
-- **608** individuals with mild cognitive impairment (MCI)
-- **251** individuals diagnosed with Alzheimer’s disease (AD)
+### Notebooks Overview
+The project is organized into modular notebooks, each addressing a specific component of the OPTIMUS workflow:  
 
-**Data modalities include:**
-- **Neuroimaging** (e.g., MRI-based features)
-- **Genetic data** (e.g., gene expression and APOE genotype)
-- **Proteomic profiles** (e.g., CSF biomarkers)
-
----
-
-### 2. Missing Data Handling
-OPTIMUS applies **generalized imputation techniques** rather than strictly modality-specific imputation, ensuring that missing values are addressed while maintaining data integrity.
+| Notebook                                  | Purpose                                                                                         |
+|-------------------------------------------|-------------------------------------------------------------------------------------------------|
+| **1-data_exploration.ipynb**              | Prepares and harmonizes multi-modal data (neuroimaging, genetic, proteomic), including feature engineering and scaling. |
+| **2-imputation_analysis.ipynb**           | Benchmarks multiple imputation strategies (e.g., MissForest, KNN, IterativeImputer) for handling missing data across modalities. |
+| **3-train-test_model_selection.ipynb**    | Implements predictive modeling with selected imputation strategies, using train-test split. Includes TabNet and classical models. |
+| **4-loco-cv_model_selection.ipynb**       | Conducts leave-one-complete-out cross-validation (LOCO-CV) for model evaluation.               |
+| **5-lomo-cv_model_selection.ipynb**       | Conducts leave-one-missing-out cross-validation (LOMO-CV) to assess model robustness to missingness. |
+| **6-captum_feature_analysis.ipynb**       | Applies explainable AI methods (Captum perturbation-based explainers) to analyze feature importances per cognitive domain. |
+| **7-feature_attribution_brain_maps.ipynb**| Projects neuroimaging feature importances onto cortical surfaces using Nilearn and the Schaefer 200-region atlas for functional interpretation. |
+| **8-extra_hyperparameter_selection.ipynb**| Performs additional hyperparameter tuning for selected models on random patient subsets.         |
 
 ---
 
-### 3. Predictive Modeling
-OPTIMUS predicts **multivariate cognitive outcomes**, including:
-- Executive function
-- Language
-- Memory
-- Visuospatial function
+### Multi-modal Data
+OPTIMUS is trained on data from **1,205 individuals** in the ADNI cohort:  
+- **348** cognitively normal (CN)  
+- **601** mild cognitive impairment (MCI)  
+- **256** Alzheimer’s disease (AD)  
 
-**Core modeling approach:**
-- **TabNet**, a deep learning model optimized for tabular data, enhanced with:
-  - **Sparse feature selection** via attention mechanisms.
-  - **Comprehensive evaluation** across multiple validation strategies.
-
-**Validation strategies include:**
-- **Train-test split** for initial evaluation.
-- **Leave-one-complete-sample-out cross-validation** to test generalizability.
-- **Leave-one-missing-sample-out cross-validation** to assess robustness in missing data scenarios.
+Modalities include:  
+- **Neuroimaging** (MRI-derived cortical thickness and subcortical volumes)  
+- **Genetic data** (APOE genotype, transcriptomics)  
+- **Proteomics** (CSF biomarkers, plasma proteins)  
 
 ---
 
-### 4. Explainable AI (XAI)
-OPTIMUS incorporates explainability directly into its modeling pipeline, using TabNet’s attention masks to:
-- Identify the **most influential features per cognitive outcome**.
-- Aggregate feature importance across decision steps.
-- Compare attention-based explanations with alternative techniques, including:
-  - **Permutation importance**
-  - **Shapley values**
+### Missing Data Handling
+Imputation methods are benchmarked across multi-modal datasets using **2-imputation_analysis.ipynb**, assessing their ability to recover missing values while preserving inter-modal relationships.  
 
-**Key visual outputs include:**
-- **Volcano plots** highlighting differentially expressed genes.
-- **Heatmaps** summarizing normalized gene expression profiles.
-- **Aggregated feature importance plots** across cognitive domains.
+---
+
+### Predictive Modeling
+Predictive modeling pipelines are implemented across several notebooks:  
+- **3-train-test_model_selection.ipynb:** Train-test split modeling.  
+- **4-loco-cv_model_selection.ipynb:** Leave-one-complete-out CV.  
+- **5-lomo-cv_model_selection.ipynb:** Leave-one-missing-out CV for robustness testing.  
+
+Models include:  
+- **Classical models:** MultiTaskElasticNet, MultiTaskLasso, Partial Least Squares (PLS), XGBoost  
+- **Deep learning models:** TabNet (via PyTorch Tabular)  
+
+The **8-extra_hyperparameter_selection.ipynb** notebook performs advanced hyperparameter searches.  
+
+---
+
+### Explainable AI (XAI)
+The **6-captum_feature_analysis.ipynb** notebook integrates multiple perturbation-based explainability methods from Captum:  
+- FeatureAblation  
+- FeaturePermutation  
+- Occlusion  
+- ShapleyValueSampling  
+- Lime  
+- KernelShap  
+
+Metrics such as **Infidelity** and **Sensitivity Max** are used for method evaluation.  
+
+---
+
+### Neuroimaging Visualization
+The **7-feature_attribution_brain_maps.ipynb** notebook uses Nilearn to project cortical feature importances onto brain surfaces for functional interpretation, utilizing the Schaefer atlas.  
 
 ---
 
 ## Results
-- OPTIMUS identifies **multi-modal biomarkers** spanning neuroimaging, genetic, and proteomic data.
-- These biomarkers **jointly but differentially** predict distinct cognitive outcomes.
-- The model uncovers **many-to-many predictive pathways**, linking biomarkers to specific cognitive functions.
+OPTIMUS identifies:  
+- **Multi-modal biomarker patterns** relevant to specific cognitive domains.  
+- Robust feature attributions across classical and deep learning models.  
+- Neuroimaging regions whose importance is consistent across explainability methods.  
 
 ---
 
 ## Significance
-OPTIMUS demonstrates the power of:
-- **Multi-modal data integration** to capture the heterogeneous pathology of AD.
-- **Imputation strategies** tailored to preserve data integrity.
-- **Attention-based models** to enhance prediction accuracy and interpretability.
-- **Explainable AI** to reveal biologically meaningful relationships between biomarkers and cognitive decline.
-
-This work advances our understanding of Alzheimer’s Disease by offering a robust, interpretable framework for modeling cognitive decline.
+This framework demonstrates:  
+- The value of **multi-modal integration** in AD research.  
+- Effective **missing data handling** strategies.  
+- **Interpretable models** for biomarker discovery and hypothesis generation.  
 
 ---
 
 ## Data Availability
 This study utilizes data from the **Alzheimer’s Disease Neuroimaging Initiative (ADNI)**.  
-Access requires registration and approval via: [ADNI Data Access](https://adni.loni.usc.edu)
+Access requires registration: [ADNI Data Access](https://adni.loni.usc.edu)  
 
 ---
 
 ## Code Availability
-All code for preprocessing, imputation, modeling, and visualization will be made available at:  
-🔗 [GitHub Repository (placeholder link)](https://github.com/your-repo-link-here)
-
----
-
-## Citation
-If you use OPTIMUS in your work, please cite:
-
+All notebooks and supporting scripts for preprocessing, imputation, modeling, and visualization will be made available at:  
+🔗 [GitHub Repository](https://github.com/cschneuw/optimus)  

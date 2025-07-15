@@ -245,3 +245,112 @@ def missing_results_dict_to_dataframe(dict_output, target_names=[]):
 
     # Show the expanded DataFrame
     return df_results
+
+
+def generate_metric_table(
+    results_list,
+    targets,
+    metric_name,
+    source="Adjusted",
+    float_format="%.3f",
+    csv_filename=None,
+    sort_order="ascending"
+):
+    """
+    Create a LaTeX and CSV table for a single metric across targets, models, and imputers,
+    including mean ± std for performance, imputation time, and fitting time.
+
+    Parameters
+    ----------
+    results_list : list of dict
+        List of experiment results.
+    targets : list of str
+        Target names (e.g., ['ADNI_MEM', 'ADNI_EF', 'ADNI_VS', 'ADNI_LAN']).
+    metric_name : str
+        Metric to extract (e.g., 'mae_score').
+    source : str
+        'Adjusted' or 'Original'.
+    float_format : str
+        Format for floats (e.g., '%.3f').
+    csv_filename : str or None
+        If provided, saves the table to CSV.
+    sort_order : str
+        'ascending' or 'descending' for sorting by mean.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Final formatted DataFrame.
+    latex_table : str
+        LaTeX-formatted table string.
+    """
+    rows = []
+    version_key = "results_adj" if source.lower() == "adjusted" else "results_org"
+
+    for res in results_list:
+        result_block = res.get(version_key)
+        if result_block is None:
+            continue
+
+        metric_values = result_block.get(metric_name)
+        if metric_values is None:
+            continue
+
+        if len(metric_values) != len(targets):
+            continue
+
+        ordinal_imputer = res["params"].get("ordinal_imputer")
+        continuous_imputer = res["params"].get("continuous_imputer")
+        model = res["params"].get("model")
+
+        values = np.array(metric_values, dtype=np.float64)
+        mean_val = np.mean(values)
+        std_val = np.std(values)
+
+        # Time metrics
+        imp_times = np.array(res.get("imputation_time", []), dtype=np.float64)
+        fit_times = np.array(res.get("fitting_time", []), dtype=np.float64)
+
+        row = {
+            "Ordinal Imputer": ordinal_imputer,
+            "Continuous Imputer": continuous_imputer,
+            "Model": model,
+            "Mean": mean_val,
+            "Mean ± SD": f"{mean_val:.3f} ± {std_val:.3f}",
+            "Imputation Time": f"{imp_times.mean():.2f}" if imp_times.size > 0 else "N/A",
+            "Fitting Time": f"{fit_times.mean():.2f}" if fit_times.size > 0 else "N/A"
+        }
+
+        row.update({target: val for target, val in zip(targets, values)})
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    # Reorder columns for display
+    display_cols = (
+        ["Ordinal Imputer", "Continuous Imputer", "Model"] +
+        targets +
+        ["Mean ± SD", "Imputation Time", "Fitting Time"]
+    )
+    df = df.sort_values(by="Mean", ascending=(sort_order == "ascending"))
+    df = df[display_cols]
+
+    df.drop_duplicates(subset=["Ordinal Imputer", "Continuous Imputer", "Model"] +
+        targets +
+        ["Mean ± SD",], inplace=True)
+
+    # Save CSV if requested
+    if csv_filename:
+        df.to_csv(csv_filename, index=False)
+
+    # Generate LaTeX table
+    latex_table = df.to_latex(
+        index=False,
+        escape=False,
+        float_format=float_format,
+        caption=f"{metric_name.replace('_', ' ').upper()} across targets with timing info",
+        label=f"tab:{metric_name}",
+        longtable=False
+    )
+
+    return df, latex_table
