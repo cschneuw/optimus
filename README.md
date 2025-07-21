@@ -1,4 +1,4 @@
-# OPTIMUS: Predicting Multivariate Outcomes in Alzheimer’s Disease Using Multi-modal Data amidst Missing Values
+# Predicting Multivariate Outcomes in Alzheimer’s Disease Using Multi-modal Data amidst Missing Values
 
 ## Authors
 Christelle Schneuwly Diaz, Duy Thanh Vũ, Julien Bodelet, Duy-Cat Can, Guillaume Blanc,  
